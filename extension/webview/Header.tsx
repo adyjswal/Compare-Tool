@@ -6,10 +6,14 @@ interface HeaderProps {
   data: DiffResultMessage;
   mode: ViewMode;
   onModeChange: (mode: ViewMode) => void;
+  /** Jump through visible rows of this status: +1 = next, -1 = previous. */
+  onNavigate: (status: DiffStatus, direction: 1 | -1) => void;
+  /** How many rows of each status are currently visible (for enabling chips). */
+  navCounts: Record<DiffStatus, number>;
 }
 
 /** Top bar: file names, per-category counts, and the layout toggle. */
-export function Header({ data, mode, onModeChange }: HeaderProps) {
+export function Header({ data, mode, onModeChange, onNavigate, navCounts }: HeaderProps) {
   const { left, right, summary } = data;
   return (
     <header className="header">
@@ -21,10 +25,10 @@ export function Header({ data, mode, onModeChange }: HeaderProps) {
 
       <div className="header-right">
         <div className="chips">
-          <Chip status="unchanged" value={summary.unchanged} />
-          <Chip status="changed" value={summary.changed} />
-          <Chip status="removed" value={summary.removed} />
-          <Chip status="added" value={summary.added} />
+          <Chip status="unchanged" value={summary.unchanged} navCount={navCounts.unchanged} onNavigate={onNavigate} />
+          <Chip status="changed" value={summary.changed} navCount={navCounts.changed} onNavigate={onNavigate} />
+          <Chip status="removed" value={summary.removed} navCount={navCounts.removed} onNavigate={onNavigate} />
+          <Chip status="added" value={summary.added} navCount={navCounts.added} onNavigate={onNavigate} />
         </div>
 
         <div className="view-toggle" role="group" aria-label="Layout">
@@ -48,10 +52,31 @@ export function Header({ data, mode, onModeChange }: HeaderProps) {
   );
 }
 
-function Chip({ status, value }: { status: DiffStatus; value: number }) {
+function Chip({
+  status,
+  value,
+  navCount,
+  onNavigate,
+}: {
+  status: DiffStatus;
+  value: number;
+  navCount: number;
+  onNavigate: (status: DiffStatus, direction: 1 | -1) => void;
+}) {
+  const disabled = navCount === 0;
   return (
-    <span className={`chip chip-${status}`}>
+    <button
+      type="button"
+      className={`chip chip-${status}`}
+      disabled={disabled}
+      title={
+        disabled
+          ? `No ${status} rows in view`
+          : `Click: next ${status} row · Shift+click: previous (${navCount})`
+      }
+      onClick={(event) => onNavigate(status, event.shiftKey ? -1 : 1)}
+    >
       {value.toLocaleString()} {status}
-    </span>
+    </button>
   );
 }

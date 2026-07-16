@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import * as vscode from "vscode";
-import type { DiffResult, FileDocument } from "@large-file-compare/engine";
+import { diffLines, sortLines } from "@large-file-compare/engine";
+import type { DiffResult, FileDocument, SortOptions } from "@large-file-compare/engine";
 import type { DiffResultMessage, WebviewToHostMessage } from "../protocol";
 
 /**
@@ -15,6 +16,15 @@ import type { DiffResultMessage, WebviewToHostMessage } from "../protocol";
 let currentPanel: vscode.WebviewPanel | undefined;
 let latestMessage: DiffResultMessage | undefined;
 
+/** Bumped for each fresh comparison so the webview can reset its toolbar. */
+let comparisonCounter = 0;
+
+/**
+ * The lines of the two files currently on screen. Kept so the webview's sort
+ * toolbar can ask the host to re-compare without re-reading from disk.
+ */
+let currentSource: { left: string[]; right: string[] } | undefined;
+
 /** Open (or reuse) the diff panel and show a comparison result in it. */
 export function showDiffResult(
   context: vscode.ExtensionContext,
@@ -22,8 +32,10 @@ export function showDiffResult(
   right: FileDocument,
   result: DiffResult,
 ): void {
+  currentSource = { left: left.lines, right: right.lines };
   latestMessage = {
     type: "diffResult",
+    comparisonId: ++comparisonCounter,
     left: toFileInfo(left),
     right: toFileInfo(right),
     summary: result.summary,
@@ -55,6 +67,8 @@ export function showDiffResult(
       // First-load handshake: send the pending result once the webview mounts.
       if (message?.type === "ready" && latestMessage) {
         void currentPanel?.webview.postMessage(latestMessage);
+      } else if (message?.type === "sort") {
+        applySort(message.options);
       }
     },
     undefined,
@@ -64,12 +78,35 @@ export function showDiffResult(
   currentPanel.onDidDispose(
     () => {
       currentPanel = undefined;
+      currentSource = undefined;
     },
     undefined,
     context.subscriptions,
   );
 
   currentPanel.webview.html = buildHtml(currentPanel.webview, context.extensionUri);
+}
+
+/**
+ * Re-run the current comparison under a new sort and push the result back.
+ *
+ * With options, both files are sorted and compared in "set" mode (positions no
+ * longer meaningful, so modified lines stay as separate removed/added). With
+ * `null`, we fall back to the original order and the default positional diff.
+ */
+function applySort(options: SortOptions | null): void {
+  if (!currentSource || !latestMessage) {
+    return;
+  }
+
+  const result: DiffResult = options
+    ? diffLines(sortLines(currentSource.left, options), sortLines(currentSource.right, options), {
+        mode: "set",
+      })
+    : diffLines(currentSource.left, currentSource.right);
+
+  latestMessage = { ...latestMessage, summary: result.summary, rows: result.rows };
+  void currentPanel?.webview.postMessage(latestMessage);
 }
 
 function toFileInfo(doc: FileDocument) {
