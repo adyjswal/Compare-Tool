@@ -6,14 +6,19 @@
  * lives here so the same code can back plugins for other IDEs later
  * (IntelliJ, Eclipse, ...).
  *
- * Phase 0 is just scaffolding: this file only exposes a version marker and a
- * tiny helper the extension uses to prove the engine is wired in correctly.
- * The reader / sorter / differ / filter modules arrive in phase 1.
+ * This file is the public API barrel — the extension imports everything it
+ * needs from here.
  */
 
 export const ENGINE_VERSION = "0.0.1";
 
-/** Placeholder used by the extension skeleton to confirm the engine is reachable. */
+/** Small helper used by the extension to confirm the engine is reachable. */
 export function engineInfo(): string {
   return `Large File Compare engine v${ENGINE_VERSION} (ready)`;
 }
+
+export * from "./types";
+export * from "./reader";
+export * from "./sorter";
+export * from "./differ";
+export * from "./filter";
