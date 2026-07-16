@@ -181,16 +181,17 @@ body {
   border-right: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
 }
 
-/* Color the side that actually has content (VS Code style: red left, green right). */
-.sxs.row-removed .cell-left {
+/* VS Code style: the "old" side is red, the "new" side is green.
+   A changed row shows the old value (left, red) beside the new value
+   (right, green); removed is red on the left only; added is green on the
+   right only. */
+.sxs.row-removed .cell-left,
+.sxs.row-changed .cell-left {
   background: rgba(248, 81, 73, 0.15);
 }
-.sxs.row-added .cell-right {
-  background: rgba(46, 160, 67, 0.15);
-}
-.sxs.row-changed .cell-left,
+.sxs.row-added .cell-right,
 .sxs.row-changed .cell-right {
-  background: rgba(210, 153, 34, 0.15);
+  background: rgba(46, 160, 67, 0.15);
 }
 /* Faint fill for the empty side of an added/removed row. */
 .sxs.row-removed .cell-right,
