@@ -1,22 +1,36 @@
 /**
- * Comparing two (already sorted) line lists.
+ * Comparing two line lists.
  *
- * Two modes, per the design we agreed on:
+ * Three behaviors, chosen by the caller (the extension decides whether it
+ * sorted the input, and passes options accordingly):
  *
- *  - Whole-line (default): a set difference. Uses the `diff` package's
- *    `diffArrays` over the two line arrays, so lines present on only one side
- *    become `added`/`removed` and shared lines are `unchanged`. Duplicates are
- *    preserved (3 copies on the left vs 1 on the right → 2 `removed`).
+ *  - Whole-line, "positional" (default): compare files in their existing order.
+ *    Uses the `diff` package's `diffArrays` (an LCS/Myers diff); a removed line
+ *    paired with the added line that replaced it becomes a `changed` row — the
+ *    familiar side-by-side diff. Use when line order is meaningful.
+ *
+ *  - Whole-line, "set": same `diffArrays` comparison but with no pairing, so a
+ *    modified line stays as a separate `removed` + `added`. Use after sorting,
+ *    where line positions are no longer meaningful.
  *
  *  - Key column: record reconciliation. Rows are matched by a delimited key
  *    column; a matching key with different content is a `changed` row. This is
- *    the real replacement for the "sort + eyeball in Excel" workflow.
+ *    the "sort + eyeball in Excel" replacement.
  *
- * `trim` / `caseInsensitive` control how equality is judged in both modes.
+ * In every mode, duplicates are preserved and `trim` / `caseInsensitive`
+ * control how equality is judged.
  */
 import { diffArrays } from "diff";
 import { extractColumn } from "./sorter";
-import { ColumnSpec, DiffOptions, DiffResult, DiffRow, DiffStatus, DiffSummary } from "./types";
+import {
+  ColumnSpec,
+  DiffMode,
+  DiffOptions,
+  DiffResult,
+  DiffRow,
+  DiffStatus,
+  DiffSummary,
+} from "./types";
 
 /** Compare two line lists and return categorized rows plus a summary. */
 export function diffLines(
@@ -30,24 +44,34 @@ export function diffLines(
 
   const rows = options.key
     ? diffByKey(left, right, options.key, normalize)
-    : diffWholeLine(left, right, normalize);
+    : diffWholeLine(left, right, options.mode ?? "positional", normalize);
 
   return { rows, summary: summarize(rows) };
 }
 
 /* ------------------------------------------------------------------ *
- * Whole-line set difference (via the `diff` package)
+ * Whole-line comparison (via the `diff` package)
  * ------------------------------------------------------------------ */
 
 function diffWholeLine(
   left: readonly string[],
   right: readonly string[],
+  mode: DiffMode,
   normalize: (s: string) => string,
 ): DiffRow[] {
   const changes = diffArrays(left as string[], right as string[], {
     comparator: (a, b) => normalize(a) === normalize(b),
   });
+  return mode === "positional" ? toRowsPositional(changes) : toRowsSet(changes);
+}
 
+type ArrayChange = { value: string[]; added?: boolean; removed?: boolean };
+
+/**
+ * "set" mode: emit each run as-is. Modified lines surface as separate
+ * `removed` + `added` — appropriate once the input has been sorted.
+ */
+function toRowsSet(changes: ArrayChange[]): DiffRow[] {
   const rows: DiffRow[] = [];
   for (const change of changes) {
     if (change.added) {
@@ -55,11 +79,51 @@ function diffWholeLine(
     } else if (change.removed) {
       for (const line of change.value) rows.push({ status: "removed", left: line });
     } else {
-      // Common run: equal under the current comparator. We show one
-      // representation for both sides (they only differ by case/whitespace).
       for (const line of change.value) rows.push({ status: "unchanged", left: line, right: line });
     }
   }
+  return rows;
+}
+
+/**
+ * "positional" mode: pair a run of removed lines with the run of added lines
+ * that replaced it into `changed` rows (leftovers stay pure removed/added).
+ *
+ * We buffer pending removed/added lines and flush them at each unchanged
+ * boundary, so pairing is localized to one modified block and works regardless
+ * of the order `diffArrays` happens to emit removed vs added.
+ */
+function toRowsPositional(changes: ArrayChange[]): DiffRow[] {
+  const rows: DiffRow[] = [];
+  let pendingRemoved: string[] = [];
+  let pendingAdded: string[] = [];
+
+  const flush = () => {
+    const paired = Math.min(pendingRemoved.length, pendingAdded.length);
+    for (let i = 0; i < paired; i++) {
+      rows.push({ status: "changed", left: pendingRemoved[i], right: pendingAdded[i] });
+    }
+    for (let i = paired; i < pendingRemoved.length; i++) {
+      rows.push({ status: "removed", left: pendingRemoved[i] });
+    }
+    for (let i = paired; i < pendingAdded.length; i++) {
+      rows.push({ status: "added", right: pendingAdded[i] });
+    }
+    pendingRemoved = [];
+    pendingAdded = [];
+  };
+
+  for (const change of changes) {
+    if (change.removed) {
+      pendingRemoved.push(...change.value);
+    } else if (change.added) {
+      pendingAdded.push(...change.value);
+    } else {
+      flush();
+      for (const line of change.value) rows.push({ status: "unchanged", left: line, right: line });
+    }
+  }
+  flush();
   return rows;
 }
 

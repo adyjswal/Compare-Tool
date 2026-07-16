@@ -1,13 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { diffLines } from "../src/differ";
 
-describe("diffLines — whole-line set difference", () => {
+describe("diffLines — positional mode (compare as-is, default)", () => {
   it("categorizes added / removed / unchanged", () => {
     const { summary } = diffLines(["a", "b", "c"], ["a", "c", "d"]);
     expect(summary.unchanged).toBe(2); // a, c
     expect(summary.removed).toBe(1); // b
     expect(summary.added).toBe(1); // d
     expect(summary.changed).toBe(0);
+  });
+
+  it("pairs a modified line into a single changed row", () => {
+    const { rows, summary } = diffLines(["a", "b", "c"], ["a", "B", "c"]);
+    expect(summary.changed).toBe(1);
+    expect(summary.unchanged).toBe(2);
+    expect(summary.added).toBe(0);
+    expect(summary.removed).toBe(0);
+    expect(rows.find((r) => r.status === "changed")).toEqual({
+      status: "changed",
+      left: "b",
+      right: "B",
+    });
+  });
+
+  it("pairs what it can and leaves the rest as removed/added", () => {
+    // Block of 2 removed vs 1 added → 1 changed pair + 1 leftover removed.
+    const { summary } = diffLines(["a", "x", "y", "d"], ["a", "X", "d"]);
+    expect(summary.unchanged).toBe(2); // a, d
+    expect(summary.changed).toBe(1); // x → X
+    expect(summary.removed).toBe(1); // y
+    expect(summary.added).toBe(0);
   });
 
   it("preserves duplicates (multiplicity matters)", () => {
@@ -25,6 +47,16 @@ describe("diffLines — whole-line set difference", () => {
     });
     expect(summary.unchanged).toBe(2);
     expect(summary.added + summary.removed + summary.changed).toBe(0);
+  });
+});
+
+describe("diffLines — set mode (after sorting)", () => {
+  it("does NOT pair; a modified line stays as removed + added", () => {
+    const { summary } = diffLines(["a", "b", "c"], ["a", "B", "c"], { mode: "set" });
+    expect(summary.unchanged).toBe(2);
+    expect(summary.removed).toBe(1); // b
+    expect(summary.added).toBe(1); // B
+    expect(summary.changed).toBe(0);
   });
 });
 

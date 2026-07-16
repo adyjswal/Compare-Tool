@@ -85,12 +85,26 @@ export interface DiffResult {
   summary: DiffSummary;
 }
 
+/**
+ * How the whole-line comparison treats a modified line (ignored in key mode):
+ * - "positional" — line-by-line diff for files kept in their original order. A
+ *   removed line paired with the added line that replaced it becomes a
+ *   `changed` row (the familiar side-by-side diff). This is the default:
+ *   comparing as-is, without sorting.
+ * - "set" — no pairing, so a modified line stays as a separate `removed` +
+ *   `added`. Use this after sorting, where line positions are no longer
+ *   meaningful and pairing would be misleading.
+ */
+export type DiffMode = "positional" | "set";
+
 /** Options that control how two line lists are compared. */
 export interface DiffOptions {
+  /** Whole-line comparison mode (see `DiffMode`). Default: "positional". */
+  mode?: DiffMode;
   /**
-   * When set, rows are matched by this key column instead of by the whole line.
-   * Matching keys with differing content become `changed` rows. When omitted,
-   * the comparison is a plain set difference (added/removed/unchanged only).
+   * When set, rows are matched by this key column instead of by the whole line,
+   * and matching keys with differing content become `changed` rows. Takes
+   * precedence over `mode`.
    */
   key?: ColumnSpec;
   /** Trim each line before comparing. Default: true. */
