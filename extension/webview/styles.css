@@ -42,6 +42,13 @@ body {
   opacity: 0.6;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .chips {
   display: flex;
   gap: 8px;
@@ -68,7 +75,36 @@ body {
   background: rgba(210, 153, 34, 0.32);
 }
 
-/* ---- Virtualized list ---- */
+/* ---- Layout toggle ---- */
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.view-toggle button {
+  border: none;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--vscode-foreground);
+  background: transparent;
+}
+
+.view-toggle button.active {
+  background: var(--vscode-button-background, rgba(90, 93, 94, 0.5));
+  color: var(--vscode-button-foreground, inherit);
+}
+
+/* ---- Diff area (column header + virtual list) ---- */
+.diff-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .diff-list {
   flex: 1 1 auto;
   /* Allow this flex child to shrink so the inner scroll container gets a
@@ -76,6 +112,17 @@ body {
   min-height: 0;
 }
 
+.columns-header {
+  display: flex;
+  align-items: center;
+  line-height: 22px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 13px);
+}
+
+/* ---- Rows (shared) ---- */
 .row {
   display: flex;
   align-items: center;
@@ -86,6 +133,17 @@ body {
   font-size: var(--vscode-editor-font-size, 13px);
 }
 
+.lineno {
+  flex: 0 0 auto;
+  width: 6ch;
+  padding: 0 8px 0 4px;
+  text-align: right;
+  opacity: 0.55;
+  color: var(--vscode-editorLineNumber-foreground, inherit);
+  user-select: none;
+}
+
+/* ---- Unified layout ---- */
 .marker {
   flex: 0 0 auto;
   width: 2ch;
@@ -99,14 +157,45 @@ body {
   text-overflow: ellipsis;
 }
 
-.row-added {
+.row:not(.sxs).row-added {
   background: rgba(46, 160, 67, 0.15);
 }
-.row-removed {
+.row:not(.sxs).row-removed {
   background: rgba(248, 81, 73, 0.15);
 }
-.row-changed {
+.row:not(.sxs).row-changed {
   background: rgba(210, 153, 34, 0.15);
+}
+
+/* ---- Side-by-side layout ---- */
+.cell {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.cell-left {
+  border-right: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+}
+
+/* Color the side that actually has content (VS Code style: red left, green right). */
+.sxs.row-removed .cell-left {
+  background: rgba(248, 81, 73, 0.15);
+}
+.sxs.row-added .cell-right {
+  background: rgba(46, 160, 67, 0.15);
+}
+.sxs.row-changed .cell-left,
+.sxs.row-changed .cell-right {
+  background: rgba(210, 153, 34, 0.15);
+}
+/* Faint fill for the empty side of an added/removed row. */
+.sxs.row-removed .cell-right,
+.sxs.row-added .cell-left {
+  background: rgba(128, 128, 128, 0.06);
 }
 
 .placeholder {

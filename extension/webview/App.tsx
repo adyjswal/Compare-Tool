@@ -3,9 +3,11 @@ import type { DiffResultMessage } from "../src/protocol";
 import { getVsCodeApi } from "./vscodeApi";
 import { Header } from "./Header";
 import { DiffList } from "./DiffList";
+import type { ViewMode } from "./DiffList";
 
 export function App() {
   const [data, setData] = useState<DiffResultMessage | null>(null);
+  const [mode, setMode] = useState<ViewMode>("sideBySide");
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -28,8 +30,13 @@ export function App() {
 
   return (
     <div className="app">
-      <Header data={data} />
-      <DiffList rows={data.rows} />
+      <Header data={data} mode={mode} onModeChange={setMode} />
+      <DiffList
+        rows={data.rows}
+        mode={mode}
+        leftName={data.left.name}
+        rightName={data.right.name}
+      />
     </div>
   );
 }
