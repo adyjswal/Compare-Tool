@@ -1,17 +1,13 @@
-import { basename } from "node:path";
 import * as vscode from "vscode";
-import { diffLines, readFileDocument } from "@large-file-compare/engine";
-import type { FileDocument } from "@large-file-compare/engine";
-import { showDiffResult } from "../panel/diffPanel";
+import { showComparison } from "../panel/diffPanel";
 
 /**
  * The "Compare Two Files" command.
  *
- * Flow: pick two files → read both via the engine → diff them *as-is* (no
- * sorting, default positional mode) → render the result in the webview panel.
- *
- * Only the obvious failure cases are handled here (cancel, unreadable, binary).
- * Richer error/loading handling is phase 5.
+ * Flow: pick two files → hand their paths to the panel, which drives a worker
+ * thread that reads + diffs them off the main thread (streaming, with progress
+ * and cancel). Reading, binary detection and diffing all happen in the worker,
+ * so this command stays tiny and the UI never blocks — even at ~1M lines.
  */
 export async function compareFilesCommand(context: vscode.ExtensionContext): Promise<void> {
   const leftUri = await pickFile("Select the FIRST file (left)");
@@ -24,34 +20,7 @@ export async function compareFilesCommand(context: vscode.ExtensionContext): Pro
     return; // user cancelled
   }
 
-  let left: FileDocument;
-  let right: FileDocument;
-  try {
-    [left, right] = await Promise.all([
-      readFileDocument(leftUri.fsPath),
-      readFileDocument(rightUri.fsPath),
-    ]);
-  } catch (err) {
-    void vscode.window.showErrorMessage(
-      `Large File Compare: couldn't read a file — ${toMessage(err)}`,
-    );
-    return;
-  }
-
-  const binary = [left, right].filter((doc) => doc.isBinary);
-  if (binary.length > 0) {
-    const names = binary.map((doc) => basename(doc.path)).join(" and ");
-    void vscode.window.showErrorMessage(
-      `Large File Compare: ${names} looks binary, not text. Please pick text files.`,
-    );
-    return;
-  }
-
-  // Compare as-is: no sorting, default positional mode (modified lines pair
-  // into "changed"). Sorting will become an opt-in step in a later phase.
-  const result = diffLines(left.lines, right.lines);
-
-  showDiffResult(context, left, right, result);
+  showComparison(context, leftUri.fsPath, rightUri.fsPath);
 }
 
 /** Show a single-file open dialog, returning the chosen Uri (or undefined). */
@@ -82,8 +51,4 @@ async function pickFile(prompt: string): Promise<vscode.Uri | undefined> {
     },
   });
   return picked?.[0];
-}
-
-function toMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }

@@ -8,6 +8,10 @@
  *     Runs in a browser-like sandbox. React, react-dom and react-window are
  *     bundled in. CSS imported from the entry is emitted as a sibling file.
  *
+ *  3. The DIFF WORKER (src/worker/diffWorker.ts) → dist/diffWorker.js
+ *     Runs in a Node worker_thread so the heavy read/sort/diff is off the host
+ *     main thread. The engine is bundled in.
+ *
  * Usage:
  *   node esbuild.js              one-shot dev build (with sourcemaps)
  *   node esbuild.js --watch      rebuild both on change
@@ -27,6 +31,19 @@ const extensionHost = {
   target: "node18",
   outfile: "dist/extension.js",
   external: ["vscode"],
+  sourcemap: !production,
+  minify: production,
+  logLevel: "info",
+};
+
+/** @type {import('esbuild').BuildOptions} */
+const diffWorker = {
+  entryPoints: ["src/worker/diffWorker.ts"],
+  bundle: true,
+  format: "cjs",
+  platform: "node",
+  target: "node18",
+  outfile: "dist/diffWorker.js",
   sourcemap: !production,
   minify: production,
   logLevel: "info",
@@ -53,13 +70,18 @@ async function main() {
   if (watch) {
     const contexts = await Promise.all([
       esbuild.context(extensionHost),
+      esbuild.context(diffWorker),
       esbuild.context(webview),
     ]);
     await Promise.all(contexts.map((ctx) => ctx.watch()));
-    console.log("[esbuild] watching for changes (extension host + webview)...");
+    console.log("[esbuild] watching for changes (extension host + worker + webview)...");
   } else {
-    await Promise.all([esbuild.build(extensionHost), esbuild.build(webview)]);
-    console.log("[esbuild] build complete (extension host + webview)");
+    await Promise.all([
+      esbuild.build(extensionHost),
+      esbuild.build(diffWorker),
+      esbuild.build(webview),
+    ]);
+    console.log("[esbuild] build complete (extension host + worker + webview)");
   }
 }
 

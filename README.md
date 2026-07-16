@@ -48,9 +48,23 @@ Host** — with the extension loaded.
 In that window, open the Command Palette (`Ctrl+Shift+P`) and run
 **“Large File Compare: Compare Two Files”**. Pick two text files and a **Large File
 Compare** panel opens showing the diff in a virtualized list — only the visible rows
-are in the DOM, so it stays smooth at 200–300k lines — with a header summary
-(unchanged / changed / removed / added). Files are compared **as-is**; sorting is an
-opt-in step added in a later phase.
+are in the DOM, so it stays smooth at 200k–1M lines — with a header summary
+(unchanged / changed / removed / added).
+
+The read + diff runs in a **worker thread** (streamed reading, progress, and a Cancel
+button), so VS Code never freezes on huge files. The diff itself is tuned for scale:
+lines are interned to integers and the common prefix/suffix is trimmed before diffing.
+
+In the panel you can:
+
+- **Compare as-is** (default) or **sort** first (alphabetical / numeric, asc/desc),
+  or **compare by a key column** (pick a delimiter + 1-based column) — matching keys
+  with different content show as `changed`, the "sort-and-eyeball-in-Excel" replacement.
+- **Find** text on either side: matches are highlighted inline and you step through them
+  with the ◂ ▸ buttons or Enter / Shift+Enter; "Only matches" hides the rest.
+- **Navigate** by category: click a summary chip to jump to the next row of that status
+  (Shift+click for previous).
+- Scroll the two panes in **lock-step** (vertical *and* horizontal), like VS Code's diff.
 
 ## Useful scripts (run from the repo root)
 
@@ -72,8 +86,11 @@ Per-package watch modes are also available:
 - **Phase 1 — Engine** ✅ reader, sorter, differ, filter as pure functions + Vitest tests.
 - **Phase 2 — Command** ✅ file pickers → engine → summary, inside the extension host.
 - **Phase 3 — Webview** ✅ React + react-window virtualized diff view.
-- **Phase 4 — Controls** sort options + filter box wired back into the engine.
-- **Phase 5 — Polish** loading states + error handling (missing/empty/binary files).
+- **Phase 4 — Controls** ✅ sort options + find/search box wired back into the engine.
+- **Phase 5 — Polish** ✅ loading/progress states + error handling (missing/empty/binary/identical).
+- **Phase 6a — Performance** ✅ worker thread, streamed reading, line interning +
+  prefix/suffix trimming, compact columnar payload, progress + cancel — targets 1M lines.
+- **Phase 6b — Key-column compare** ✅ match rows by a delimited key column (SQL/CSV).
 
 ## Notes
 

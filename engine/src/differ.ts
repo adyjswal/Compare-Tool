@@ -50,36 +50,271 @@ export function diffLines(
 }
 
 /* ------------------------------------------------------------------ *
- * Whole-line comparison (via the `diff` package)
+ * Whole-line comparison (patience diff over interned lines)
  * ------------------------------------------------------------------ */
 
+/**
+ * A run of the diff: `op` is EQUAL/DELETE/INSERT, `n` is how many lines.
+ * EQUAL consumes n lines from both sides; DELETE from the left; INSERT the right.
+ */
+const EQUAL = 0;
+const DELETE = 1;
+const INSERT = 2;
+interface Op {
+  op: 0 | 1 | 2;
+  n: number;
+}
+
+/** A unit of work for the iterative patience diff: a resolved run, or a range. */
+type DiffOp = { kind: "op"; op: 0 | 1 | 2; n: number };
+type DiffRange = { kind: "range"; al: number; ah: number; bl: number; bh: number; depth: number };
+type WorkItem = DiffOp | DiffRange;
+
+/**
+ * Below this combined size, a segment with no unique anchors is diffed with the
+ * `diff` package (Myers) for a clean minimal result. Above it, we don't risk the
+ * O(N·D) blow-up — the whole segment is emitted as removed + added ("replaced").
+ */
+const BASE_MYERS_LIMIT = 2000;
+/** Guard against pathological anchor nesting; deeper segments use the base path. */
+const MAX_DEPTH = 4000;
+
+/**
+ * Whole-line diff tuned to stay fast on very large (200k–1M line) files.
+ *
+ * The `diff` package's Myers diff is O(N·D) and hangs when two big files differ
+ * a lot. Instead we use a **patience diff**:
+ *
+ *  1. **Intern** each line to an integer id (normalizing trim/case once), so we
+ *     compare cheap ints, not strings.
+ *  2. **Anchor** on lines that appear exactly once on *both* sides and take the
+ *     longest increasing run of them — those must line up. Recurse into the gaps
+ *     between anchors (trimming common prefix/suffix first). Only tiny leftover
+ *     segments fall back to Myers; huge anchorless blocks are a plain
+ *     removed+added "replace".
+ *
+ * The recursion is driven by an explicit stack, so a 1M-line file can't blow the
+ * call stack. Rows are rebuilt from the *original* lines by position.
+ */
 function diffWholeLine(
   left: readonly string[],
   right: readonly string[],
   mode: DiffMode,
   normalize: (s: string) => string,
 ): DiffRow[] {
-  const changes = diffArrays(left as string[], right as string[], {
-    comparator: (a, b) => normalize(a) === normalize(b),
-  });
-  return mode === "positional" ? toRowsPositional(changes) : toRowsSet(changes);
+  const dict = new Map<string, number>();
+  let nextId = 0;
+  const idOf = (line: string): number => {
+    const key = normalize(line);
+    let id = dict.get(key);
+    if (id === undefined) {
+      id = nextId++;
+      dict.set(key, id);
+    }
+    return id;
+  };
+  const a = left.map(idOf);
+  const b = right.map(idOf);
+
+  const ops = diffIds(a, b);
+  return mode === "positional" ? reconstructPositional(ops, left, right) : reconstructSet(ops, left, right);
 }
 
-type ArrayChange = { value: string[]; added?: boolean; removed?: boolean };
+/** Append a run to `ops`, coalescing with the previous run of the same kind. */
+function pushOp(ops: Op[], op: 0 | 1 | 2, n: number): void {
+  if (n <= 0) {
+    return;
+  }
+  const last = ops[ops.length - 1];
+  if (last && last.op === op) {
+    last.n += n;
+  } else {
+    ops.push({ op, n });
+  }
+}
+
+/** Patience-diff two id arrays into an ordered list of EQUAL/DELETE/INSERT runs. */
+function diffIds(a: number[], b: number[]): Op[] {
+  const ops: Op[] = [];
+  // A stack of pending work; each item is either an already-resolved run to
+  // append, or a [lo,hi) × [lo,hi) range still to diff. Ranges are expanded and
+  // their parts pushed back in reverse, so items pop in left-to-right order.
+  const stack: WorkItem[] = [{ kind: "range", al: 0, ah: a.length, bl: 0, bh: b.length, depth: 0 }];
+
+  while (stack.length > 0) {
+    const item = stack.pop() as WorkItem;
+    if (item.kind === "op") {
+      pushOp(ops, item.op, item.n);
+      continue;
+    }
+
+    let { al, ah, bl, bh } = item;
+    const parts: WorkItem[] = [];
+
+    let prefix = 0;
+    while (al < ah && bl < bh && a[al] === b[bl]) {
+      al++;
+      bl++;
+      prefix++;
+    }
+    if (prefix > 0) {
+      parts.push({ kind: "op", op: EQUAL, n: prefix });
+    }
+
+    let suffix = 0;
+    while (ah > al && bh > bl && a[ah - 1] === b[bh - 1]) {
+      ah--;
+      bh--;
+      suffix++;
+    }
+
+    if (al === ah) {
+      if (bl < bh) parts.push({ kind: "op", op: INSERT, n: bh - bl });
+    } else if (bl === bh) {
+      parts.push({ kind: "op", op: DELETE, n: ah - al });
+    } else {
+      const anchors = item.depth <= MAX_DEPTH ? patienceAnchors(a, b, al, ah, bl, bh) : [];
+      if (anchors.length === 0) {
+        baseDiff(a, b, al, ah, bl, bh, parts);
+      } else {
+        let pa = al;
+        let pb = bl;
+        for (const [ai, bi] of anchors) {
+          parts.push({ kind: "range", al: pa, ah: ai, bl: pb, bh: bi, depth: item.depth + 1 });
+          parts.push({ kind: "op", op: EQUAL, n: 1 });
+          pa = ai + 1;
+          pb = bi + 1;
+        }
+        parts.push({ kind: "range", al: pa, ah, bl: pb, bh, depth: item.depth + 1 });
+      }
+    }
+
+    if (suffix > 0) {
+      parts.push({ kind: "op", op: EQUAL, n: suffix });
+    }
+
+    for (let i = parts.length - 1; i >= 0; i--) {
+      stack.push(parts[i]);
+    }
+  }
+
+  return ops;
+}
+
+/**
+ * Diff a small (or anchorless) segment. Tiny segments go through the `diff`
+ * package for a clean result; oversized anchorless blocks are emitted as a plain
+ * removed + added replacement so we never risk the Myers blow-up.
+ */
+function baseDiff(
+  a: number[],
+  b: number[],
+  al: number,
+  ah: number,
+  bl: number,
+  bh: number,
+  parts: WorkItem[],
+): void {
+  const leftLen = ah - al;
+  const rightLen = bh - bl;
+  if (leftLen + rightLen > BASE_MYERS_LIMIT) {
+    if (leftLen > 0) parts.push({ kind: "op", op: DELETE, n: leftLen });
+    if (rightLen > 0) parts.push({ kind: "op", op: INSERT, n: rightLen });
+    return;
+  }
+  for (const change of diffArrays(a.slice(al, ah), b.slice(bl, bh))) {
+    const n = change.value.length;
+    if (change.added) parts.push({ kind: "op", op: INSERT, n });
+    else if (change.removed) parts.push({ kind: "op", op: DELETE, n });
+    else parts.push({ kind: "op", op: EQUAL, n });
+  }
+}
+
+/**
+ * Find "anchor" pairs: lines occurring exactly once on both sides, kept as the
+ * longest run whose positions increase on both sides (a patience LIS). These are
+ * points the two files must agree on.
+ */
+function patienceAnchors(
+  a: number[],
+  b: number[],
+  al: number,
+  ah: number,
+  bl: number,
+  bh: number,
+): Array<[number, number]> {
+  const leftPos = uniquePositions(a, al, ah);
+  const rightPos = uniquePositions(b, bl, bh);
+
+  const pairs: Array<[number, number]> = [];
+  for (const [id, lp] of leftPos) {
+    const rp = rightPos.get(id);
+    if (rp !== undefined && rp >= 0 && lp >= 0) {
+      pairs.push([lp, rp]);
+    }
+  }
+  if (pairs.length === 0) {
+    return [];
+  }
+  pairs.sort((x, y) => x[0] - y[0]);
+  return longestIncreasingByRight(pairs);
+}
+
+/** Map id → its single position in [lo,hi), or -1 if it occurs more than once. */
+function uniquePositions(ids: number[], lo: number, hi: number): Map<number, number> {
+  const seen = new Map<number, number>();
+  for (let i = lo; i < hi; i++) {
+    const id = ids[i];
+    seen.set(id, seen.has(id) ? -1 : i);
+  }
+  return seen;
+}
+
+/** Longest subsequence of pairs (pre-sorted by left) whose right pos increases. */
+function longestIncreasingByRight(pairs: Array<[number, number]>): Array<[number, number]> {
+  const n = pairs.length;
+  const prev = new Array<number>(n).fill(-1);
+  const tails: number[] = []; // tails[k] = index of the smallest tail of an LIS of length k+1
+
+  for (let i = 0; i < n; i++) {
+    const value = pairs[i][1];
+    let lo = 0;
+    let hi = tails.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (pairs[tails[mid]][1] < value) lo = mid + 1;
+      else hi = mid;
+    }
+    if (lo > 0) prev[i] = tails[lo - 1];
+    if (lo === tails.length) tails.push(i);
+    else tails[lo] = i;
+  }
+
+  const result: Array<[number, number]> = [];
+  let k = tails.length > 0 ? tails[tails.length - 1] : -1;
+  while (k !== -1) {
+    result.push(pairs[k]);
+    k = prev[k];
+  }
+  result.reverse();
+  return result;
+}
 
 /**
  * "set" mode: emit each run as-is. Modified lines surface as separate
  * `removed` + `added` — appropriate once the input has been sorted.
  */
-function toRowsSet(changes: ArrayChange[]): DiffRow[] {
+function reconstructSet(ops: Op[], left: readonly string[], right: readonly string[]): DiffRow[] {
   const rows: DiffRow[] = [];
-  for (const change of changes) {
-    if (change.added) {
-      for (const line of change.value) rows.push({ status: "added", right: line });
-    } else if (change.removed) {
-      for (const line of change.value) rows.push({ status: "removed", left: line });
+  let lc = 0;
+  let rc = 0;
+  for (const { op, n } of ops) {
+    if (op === INSERT) {
+      for (let i = 0; i < n; i++) rows.push({ status: "added", right: right[rc++] });
+    } else if (op === DELETE) {
+      for (let i = 0; i < n; i++) rows.push({ status: "removed", left: left[lc++] });
     } else {
-      for (const line of change.value) rows.push({ status: "unchanged", left: line, right: line });
+      for (let i = 0; i < n; i++) rows.push({ status: "unchanged", left: left[lc++], right: right[rc++] });
     }
   }
   return rows;
@@ -87,14 +322,17 @@ function toRowsSet(changes: ArrayChange[]): DiffRow[] {
 
 /**
  * "positional" mode: pair a run of removed lines with the run of added lines
- * that replaced it into `changed` rows (leftovers stay pure removed/added).
- *
- * We buffer pending removed/added lines and flush them at each unchanged
- * boundary, so pairing is localized to one modified block and works regardless
- * of the order `diffArrays` happens to emit removed vs added.
+ * that replaced it into `changed` rows (leftovers stay pure removed/added). We
+ * buffer pending removed/added lines and flush them at each unchanged boundary.
  */
-function toRowsPositional(changes: ArrayChange[]): DiffRow[] {
+function reconstructPositional(
+  ops: Op[],
+  left: readonly string[],
+  right: readonly string[],
+): DiffRow[] {
   const rows: DiffRow[] = [];
+  let lc = 0;
+  let rc = 0;
   let pendingRemoved: string[] = [];
   let pendingAdded: string[] = [];
 
@@ -113,14 +351,14 @@ function toRowsPositional(changes: ArrayChange[]): DiffRow[] {
     pendingAdded = [];
   };
 
-  for (const change of changes) {
-    if (change.removed) {
-      pendingRemoved.push(...change.value);
-    } else if (change.added) {
-      pendingAdded.push(...change.value);
+  for (const { op, n } of ops) {
+    if (op === DELETE) {
+      for (let i = 0; i < n; i++) pendingRemoved.push(left[lc++]);
+    } else if (op === INSERT) {
+      for (let i = 0; i < n; i++) pendingAdded.push(right[rc++]);
     } else {
       flush();
-      for (const line of change.value) rows.push({ status: "unchanged", left: line, right: line });
+      for (let i = 0; i < n; i++) rows.push({ status: "unchanged", left: left[lc++], right: right[rc++] });
     }
   }
   flush();

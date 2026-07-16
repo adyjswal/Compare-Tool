@@ -99,7 +99,12 @@ export const DiffList = forwardRef<DiffListHandle, DiffListProps>(function DiffL
       )}
 
       <div className="diff-body" ref={height.ref}>
-        {height.value > 0 &&
+        {rows.length === 0 ? (
+          <div className="empty-rows">
+            {query === "" ? "No rows to display." : "No rows match your search."}
+          </div>
+        ) : (
+          height.value > 0 &&
           (mode === "sideBySide" ? (
             <SideBySide
               rows={rows}
@@ -113,13 +118,15 @@ export const DiffList = forwardRef<DiffListHandle, DiffListProps>(function DiffL
           ) : (
             <Unified
               rows={rows}
+              lineNos={lineNos}
               height={height.value}
               currentIndex={currentIndex}
               query={query}
               caseSensitive={caseSensitive}
               listRef={unifiedListRef}
             />
-          ))}
+          ))
+        )}
       </div>
     </div>
   );
@@ -293,6 +300,7 @@ function PaneRow({ index, style, data }: ListChildComponentProps<PaneData>) {
 
 interface UnifiedData {
   rows: DiffRow[];
+  lineNos: LineNo[];
   minWidth: string;
   currentIndex: number | null;
   query: string;
@@ -301,6 +309,7 @@ interface UnifiedData {
 
 function Unified({
   rows,
+  lineNos,
   height,
   currentIndex,
   query,
@@ -308,6 +317,7 @@ function Unified({
   listRef,
 }: {
   rows: DiffRow[];
+  lineNos: LineNo[];
   height: number;
   currentIndex: number | null;
   query: string;
@@ -316,9 +326,10 @@ function Unified({
 }) {
   const minWidth = useMemo(() => {
     const longest = Math.max(rowMaxLen(rows, "left"), rowMaxLen(rows, "right"));
-    return contentWidth(longest, /* gutterCh */ 2);
+    // Two line-number gutters (old + new) sit before the text.
+    return contentWidth(longest, /* gutterCh */ 12);
   }, [rows]);
-  const itemData: UnifiedData = { rows, minWidth, currentIndex, query, caseSensitive };
+  const itemData: UnifiedData = { rows, lineNos, minWidth, currentIndex, query, caseSensitive };
   return (
     <FixedSizeList
       ref={listRef}
@@ -335,9 +346,10 @@ function Unified({
   );
 }
 
-/** Single column: shows the "current" side, with the old value in the tooltip. */
+/** Single column with old|new line-number gutters (GitHub-style unified diff). */
 function UnifiedRow({ index, style, data }: ListChildComponentProps<UnifiedData>) {
   const row = data.rows[index];
+  const nos = data.lineNos[index];
   const text = row.status === "added" || row.status === "changed" ? row.right : row.left;
   const title =
     row.status === "changed" ? `${row.right ?? ""}\n(was: ${row.left ?? ""})` : (text ?? "");
@@ -345,6 +357,8 @@ function UnifiedRow({ index, style, data }: ListChildComponentProps<UnifiedData>
   const current = index === data.currentIndex ? " row-current" : "";
   return (
     <div className={`row row-${row.status}${current}`} style={rowStyle} title={title}>
+      <span className="lineno lineno-old">{nos.left ?? ""}</span>
+      <span className="lineno lineno-new">{nos.right ?? ""}</span>
       <span className="marker">{MARKERS[row.status]}</span>
       <span className="text">{highlight(text ?? "", data.query, data.caseSensitive)}</span>
     </div>

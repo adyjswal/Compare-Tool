@@ -14,6 +14,9 @@ import type { KeyboardEvent } from "react";
 /** The sort choices offered in the dropdown. */
 export type SortChoice = "original" | "alpha-asc" | "alpha-desc" | "num-asc" | "num-desc";
 
+/** How rows are matched: by the whole line, or by a delimited key column. */
+export type CompareBy = "line" | "column";
+
 interface ToolbarProps {
   query: string;
   onQueryChange: (query: string) => void;
@@ -21,12 +24,14 @@ interface ToolbarProps {
   onCaseSensitiveSearchChange: (value: boolean) => void;
   onlyMatches: boolean;
   onOnlyMatchesChange: (value: boolean) => void;
-  /** Step to the next (+1) or previous (-1) match. */
+  /** Step to the next (+1) or previous (-1) match (Enter / Shift+Enter). */
   onFindNav: (direction: 1 | -1) => void;
-  /** Total matching rows, and the 0-based position of the current one (-1 = none yet). */
-  matchCount: number;
-  matchPos: number;
-  totalCount: number;
+  compareBy: CompareBy;
+  onCompareByChange: (value: CompareBy) => void;
+  delimiter: string;
+  onDelimiterChange: (value: string) => void;
+  keyColumn: number;
+  onKeyColumnChange: (value: number) => void;
   sort: SortChoice;
   onSortChange: (sort: SortChoice) => void;
   ignoreCaseSort: boolean;
@@ -44,16 +49,19 @@ export function Toolbar({
   onlyMatches,
   onOnlyMatchesChange,
   onFindNav,
-  matchCount,
-  matchPos,
-  totalCount,
+  compareBy,
+  onCompareByChange,
+  delimiter,
+  onDelimiterChange,
+  keyColumn,
+  onKeyColumnChange,
   sort,
   onSortChange,
   ignoreCaseSort,
   onIgnoreCaseSortChange,
 }: ToolbarProps) {
   const finding = query !== "";
-  const hasMatches = matchCount > 0;
+  const byColumn = compareBy === "column";
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
@@ -65,64 +73,81 @@ export function Toolbar({
   return (
     <div className="toolbar">
       <div className="toolbar-group search-group">
-        <input
-          type="search"
-          className="search-input"
-          placeholder="Find in both files…"
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          onKeyDown={onKeyDown}
-          aria-label="Find text on either side"
-        />
-        <label className="check" title="Match case">
+        <div className="search-box">
           <input
-            type="checkbox"
-            checked={caseSensitiveSearch}
-            onChange={(event) => onCaseSensitiveSearchChange(event.target.checked)}
+            type="search"
+            className="search-input"
+            placeholder="Find in both files…  (Enter = next, Shift+Enter = previous)"
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            onKeyDown={onKeyDown}
+            aria-label="Find text on either side"
           />
-          Aa
-        </label>
-
-        <div className="find-nav" role="group" aria-label="Find navigation">
           <button
             type="button"
-            className="find-step"
-            disabled={!hasMatches}
-            title="Previous match (Shift+Enter)"
-            onClick={() => onFindNav(-1)}
+            className={`in-search-toggle${caseSensitiveSearch ? " active" : ""}`}
+            aria-pressed={caseSensitiveSearch}
+            title="Match case"
+            onClick={() => onCaseSensitiveSearchChange(!caseSensitiveSearch)}
           >
-            ◂
-          </button>
-          <button
-            type="button"
-            className="find-step"
-            disabled={!hasMatches}
-            title="Next match (Enter)"
-            onClick={() => onFindNav(1)}
-          >
-            ▸
+            Aa
           </button>
         </div>
 
-        <span className="match-count">
-          {!finding
-            ? `${totalCount.toLocaleString()} rows`
-            : !hasMatches
-              ? "No results"
-              : matchPos >= 0
-                ? `${matchPos + 1} of ${matchCount.toLocaleString()}`
-                : `${matchCount.toLocaleString()} matches`}
-        </span>
+        {finding && (
+          <label className="check" title="Hide the rows that don't match your search">
+            <input
+              type="checkbox"
+              checked={onlyMatches}
+              onChange={(event) => onOnlyMatchesChange(event.target.checked)}
+            />
+            Only matches
+          </label>
+        )}
+      </div>
 
-        <label className={`check${finding ? "" : " disabled"}`} title="Hide non-matching rows">
-          <input
-            type="checkbox"
-            checked={onlyMatches}
-            disabled={!finding}
-            onChange={(event) => onOnlyMatchesChange(event.target.checked)}
-          />
-          Only matches
+      <div className="toolbar-group compare-group">
+        <label className="sort-label" htmlFor="compare-by">
+          Compare
         </label>
+        <select
+          id="compare-by"
+          className="sort-select"
+          value={compareBy}
+          onChange={(event) => onCompareByChange(event.target.value as CompareBy)}
+          title="Match rows by the whole line, or by a key column (e.g. a SQL/CSV id)"
+        >
+          <option value="line">Whole line</option>
+          <option value="column">By key column</option>
+        </select>
+        {byColumn && (
+          <>
+            <select
+              className="sort-select"
+              value={delimiter}
+              onChange={(event) => onDelimiterChange(event.target.value)}
+              aria-label="Column delimiter"
+              title="Column delimiter"
+            >
+              <option value=",">Comma</option>
+              <option value={"\t"}>Tab</option>
+              <option value="|">Pipe</option>
+              <option value=";">Semicolon</option>
+            </select>
+            <label className="key-col" title="1-based key column">
+              Key col
+              <input
+                type="number"
+                min={1}
+                className="key-input"
+                value={keyColumn}
+                onChange={(event) =>
+                  onKeyColumnChange(Math.max(1, Math.floor(Number(event.target.value) || 1)))
+                }
+              />
+            </label>
+          </>
+        )}
       </div>
 
       <div className="toolbar-group sort-group">
@@ -133,6 +158,8 @@ export function Toolbar({
           id="sort-select"
           className="sort-select"
           value={sort}
+          disabled={byColumn}
+          title={byColumn ? "Sorting doesn't apply when comparing by key column" : undefined}
           onChange={(event) => onSortChange(event.target.value as SortChoice)}
         >
           <option value="original">Original order</option>
@@ -141,18 +168,16 @@ export function Toolbar({
           <option value="num-asc">Numeric (0→9)</option>
           <option value="num-desc">Numeric (9→0)</option>
         </select>
-        <label
-          className={`check${alphaSort(sort) ? "" : " disabled"}`}
-          title="Case-insensitive alphabetical sort"
-        >
-          <input
-            type="checkbox"
-            checked={ignoreCaseSort}
-            disabled={!alphaSort(sort)}
-            onChange={(event) => onIgnoreCaseSortChange(event.target.checked)}
-          />
-          Ignore case
-        </label>
+        {alphaSort(sort) && !byColumn && (
+          <label className="check" title="Sort case-insensitively (A = a)">
+            <input
+              type="checkbox"
+              checked={ignoreCaseSort}
+              onChange={(event) => onIgnoreCaseSortChange(event.target.checked)}
+            />
+            Ignore case
+          </label>
+        )}
       </div>
     </div>
   );

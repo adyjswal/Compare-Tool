@@ -1,51 +1,125 @@
-import { basename } from "node:path";
+import { join } from "node:path";
+import { Worker } from "node:worker_threads";
 import * as vscode from "vscode";
-import { diffLines, sortLines } from "@large-file-compare/engine";
-import type { DiffResult, FileDocument, SortOptions } from "@large-file-compare/engine";
-import type { DiffResultMessage, WebviewToHostMessage } from "../protocol";
+import type {
+  CompareMessage,
+  DiffResultMessage,
+  FileInfo,
+  HostToWebviewMessage,
+  WebviewToHostMessage,
+} from "../protocol";
+import type {
+  CompareOptions,
+  FileMeta,
+  WorkerRequest,
+  WorkerResponse,
+} from "../worker/messages";
 
 /**
- * Manages the single webview panel that shows comparison results.
+ * Manages the single webview panel and the diff worker behind it.
  *
- * We keep one panel and reuse it across comparisons. Because the webview's
- * script may not have attached its message listener by the time we post the
- * first result, we hold the latest message and (re)send it when the webview
- * tells us it's `ready`.
+ * We keep one panel and reuse it across comparisons. A worker thread owns the
+ * (potentially huge) file line arrays and does the heavy read/sort/diff off the
+ * host thread, streaming back progress and a compact columnar result. The panel
+ * relays those to the webview, holding the most recent message so it can be
+ * re-sent once the webview reports it's `ready`.
  */
+
+interface Session {
+  worker: Worker;
+  requestId: number;
+  compare: CompareOptions;
+  comparisonId: number;
+  leftPath: string;
+  rightPath: string;
+  left?: FileMeta;
+  right?: FileMeta;
+}
 
 let currentPanel: vscode.WebviewPanel | undefined;
-let latestMessage: DiffResultMessage | undefined;
-
-/** Bumped for each fresh comparison so the webview can reset its toolbar. */
+let session: Session | undefined;
+let pendingMessage: HostToWebviewMessage | undefined;
 let comparisonCounter = 0;
 
-/**
- * The lines of the two files currently on screen. Kept so the webview's sort
- * toolbar can ask the host to re-compare without re-reading from disk.
- */
-let currentSource: { left: string[]; right: string[] } | undefined;
-
-/** Open (or reuse) the diff panel and show a comparison result in it. */
-export function showDiffResult(
+/** Open (or reuse) the diff panel and start comparing two files. */
+export function showComparison(
   context: vscode.ExtensionContext,
-  left: FileDocument,
-  right: FileDocument,
-  result: DiffResult,
+  leftPath: string,
+  rightPath: string,
 ): void {
-  currentSource = { left: left.lines, right: right.lines };
-  latestMessage = {
-    type: "diffResult",
+  ensurePanel(context);
+  currentPanel?.reveal(vscode.ViewColumn.Active);
+
+  // Fresh comparison: tear down any previous worker and start a new one.
+  session?.worker.terminate();
+  const worker = new Worker(join(context.extensionUri.fsPath, "dist", "diffWorker.js"));
+  const compare: CompareOptions = { sort: null, key: null };
+  session = {
+    worker,
+    requestId: 1,
+    compare,
     comparisonId: ++comparisonCounter,
-    left: toFileInfo(left),
-    right: toFileInfo(right),
-    summary: result.summary,
-    rows: result.rows,
+    leftPath,
+    rightPath,
   };
 
+  worker.on("message", (response: WorkerResponse) => onWorkerMessage(response));
+  worker.on("error", (err) => send({ type: "error", message: toMessage(err) }));
+
+  send({ type: "status", phase: "reading" });
+  post(worker, { type: "load", id: session.requestId, leftPath, rightPath, compare });
+}
+
+/** Handle a message coming back from the worker for the active session. */
+function onWorkerMessage(response: WorkerResponse): void {
+  if (!session || response.id !== session.requestId) {
+    return; // stale response from a superseded/terminated request
+  }
+
+  switch (response.type) {
+    case "progress":
+      send({ type: "status", phase: response.phase, lines: response.lines });
+      return;
+    case "meta":
+      session.left = response.left;
+      session.right = response.right;
+      if (response.left.binary || response.right.binary) {
+        const names = [response.left, response.right]
+          .filter((m) => m.binary)
+          .map((m) => m.path)
+          .join(" and ");
+        send({
+          type: "error",
+          message: `${names} looks binary, not text. Please pick text files.`,
+        });
+      }
+      return;
+    case "result": {
+      if (!session.left || !session.right) {
+        return;
+      }
+      const message: DiffResultMessage = {
+        type: "diffResult",
+        comparisonId: session.comparisonId,
+        left: toFileInfo(session.left),
+        right: toFileInfo(session.right),
+        summary: response.result.summary,
+        statuses: response.result.statuses,
+        lefts: response.result.lefts,
+        rights: response.result.rights,
+      };
+      send(message);
+      return;
+    }
+    case "error":
+      send({ type: "error", message: response.message });
+      return;
+  }
+}
+
+/** Create the panel and wire its lifecycle, unless one already exists. */
+function ensurePanel(context: vscode.ExtensionContext): void {
   if (currentPanel) {
-    currentPanel.reveal(vscode.ViewColumn.Active);
-    // The webview is already up, so post immediately.
-    void currentPanel.webview.postMessage(latestMessage);
     return;
   }
 
@@ -55,30 +129,23 @@ export function showDiffResult(
     vscode.ViewColumn.Active,
     {
       enableScripts: true,
-      // Keep the (potentially large) rendered result alive when the tab is
-      // hidden, so switching away and back doesn't re-post everything.
       retainContextWhenHidden: true,
       localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")],
     },
   );
 
   currentPanel.webview.onDidReceiveMessage(
-    (message: WebviewToHostMessage) => {
-      // First-load handshake: send the pending result once the webview mounts.
-      if (message?.type === "ready" && latestMessage) {
-        void currentPanel?.webview.postMessage(latestMessage);
-      } else if (message?.type === "sort") {
-        applySort(message.options);
-      }
-    },
+    (message: WebviewToHostMessage) => onWebviewMessage(message),
     undefined,
     context.subscriptions,
   );
 
   currentPanel.onDidDispose(
     () => {
+      session?.worker.terminate();
+      session = undefined;
+      pendingMessage = undefined;
       currentPanel = undefined;
-      currentSource = undefined;
     },
     undefined,
     context.subscriptions,
@@ -87,40 +154,85 @@ export function showDiffResult(
   currentPanel.webview.html = buildHtml(currentPanel.webview, context.extensionUri);
 }
 
-/**
- * Re-run the current comparison under a new sort and push the result back.
- *
- * With options, both files are sorted and compared in "set" mode (positions no
- * longer meaningful, so modified lines stay as separate removed/added). With
- * `null`, we fall back to the original order and the default positional diff.
- */
-function applySort(options: SortOptions | null): void {
-  if (!currentSource || !latestMessage) {
+/** Handle a message from the webview. */
+function onWebviewMessage(message: WebviewToHostMessage): void {
+  if (!session) {
     return;
   }
-
-  const result: DiffResult = options
-    ? diffLines(sortLines(currentSource.left, options), sortLines(currentSource.right, options), {
-        mode: "set",
-      })
-    : diffLines(currentSource.left, currentSource.right);
-
-  latestMessage = { ...latestMessage, summary: result.summary, rows: result.rows };
-  void currentPanel?.webview.postMessage(latestMessage);
+  switch (message.type) {
+    case "ready":
+      if (pendingMessage) {
+        void currentPanel?.webview.postMessage(pendingMessage);
+      }
+      return;
+    case "compare":
+      recompute(message);
+      return;
+    case "reload":
+      reload();
+      return;
+    case "cancel":
+      session.worker.terminate();
+      send({ type: "error", message: "Comparison canceled." });
+      session = undefined;
+      return;
+  }
 }
 
-function toFileInfo(doc: FileDocument) {
-  return { name: basename(doc.path), lineCount: doc.lines.length, empty: doc.isEmpty };
+/**
+ * Re-read both files from disk and re-run the comparison, keeping the same
+ * comparison id (so the webview preserves its sort/find/view state) and the
+ * current sort/key options (so the refreshed result matches what's on screen).
+ */
+function reload(): void {
+  if (!session) {
+    return;
+  }
+  session.requestId += 1;
+  send({ type: "status", phase: "reading" });
+  post(session.worker, {
+    type: "load",
+    id: session.requestId,
+    leftPath: session.leftPath,
+    rightPath: session.rightPath,
+    compare: session.compare,
+  });
+}
+
+/** Re-run the current comparison under new sort / key options. */
+function recompute(message: CompareMessage): void {
+  if (!session) {
+    return;
+  }
+  session.compare = message.options;
+  session.requestId += 1;
+  send({ type: "status", phase: "diffing" });
+  post(session.worker, { type: "recompute", id: session.requestId, compare: message.options });
+}
+
+/** Post a request to the worker (moving the status buffer is worker→host only). */
+function post(worker: Worker, request: WorkerRequest): void {
+  worker.postMessage(request);
+}
+
+/** Send a message to the webview and remember it for the `ready` handshake. */
+function send(message: HostToWebviewMessage): void {
+  pendingMessage = message;
+  void currentPanel?.webview.postMessage(message);
+}
+
+function toFileInfo(meta: FileMeta): FileInfo {
+  return { name: meta.path, lineCount: meta.lineCount, empty: meta.empty };
+}
+
+function toMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /** Build the webview HTML: strict CSP, nonce'd script, bundled JS/CSS. */
-function buildHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
-  const scriptUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, "dist", "webview.js"),
-  );
-  const styleUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, "dist", "webview.css"),
-  );
+function buildHtml(webview: vscode.Webview, uri: vscode.Uri): string {
+  const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(uri, "dist", "webview.js"));
+  const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(uri, "dist", "webview.css"));
   const nonce = makeNonce();
 
   return `<!DOCTYPE html>

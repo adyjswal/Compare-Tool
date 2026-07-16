@@ -60,6 +60,56 @@ describe("diffLines — set mode (after sorting)", () => {
   });
 });
 
+describe("diffLines — prefix/suffix trimming (large-file fast path)", () => {
+  it("keeps the diff correct when a change is buried between long equal runs", () => {
+    // Long identical prefix + suffix with a single changed line in the middle.
+    const prefix = Array.from({ length: 500 }, (_, i) => `p${i}`);
+    const suffix = Array.from({ length: 500 }, (_, i) => `s${i}`);
+    const left = [...prefix, "middle-old", ...suffix];
+    const right = [...prefix, "middle-new", ...suffix];
+
+    const { rows, summary } = diffLines(left, right);
+    expect(summary.unchanged).toBe(1000);
+    expect(summary.changed).toBe(1);
+    expect(summary.added + summary.removed).toBe(0);
+    expect(rows.find((r) => r.status === "changed")).toEqual({
+      status: "changed",
+      left: "middle-old",
+      right: "middle-new",
+    });
+    // Row order is preserved: the change sits right after the 500-line prefix.
+    expect(rows[500]).toEqual({ status: "changed", left: "middle-old", right: "middle-new" });
+  });
+
+  it("shows each side's own text for an unchanged row (not a mirror of the left)", () => {
+    // Equal under trim+case, but the original text differs per side.
+    const { rows } = diffLines(["Hello "], ["hello"], { trim: true, caseInsensitive: true });
+    expect(rows).toEqual([{ status: "unchanged", left: "Hello ", right: "hello" }]);
+  });
+
+  it("handles 200k lines with scattered differences without hanging", () => {
+    // Every 10th line differs. With a naive Myers diff this is ~O(N·D) and hangs;
+    // patience anchoring on the many unique unchanged lines keeps it fast. If this
+    // test finishes at all, the pathological case is handled.
+    const n = 200_000;
+    const left: string[] = [];
+    const right: string[] = [];
+    for (let i = 0; i < n; i++) {
+      if (i % 10 === 3) {
+        left.push(`row ${i} OLD`);
+        right.push(`row ${i} NEW`);
+      } else {
+        left.push(`row ${i}`);
+        right.push(`row ${i}`);
+      }
+    }
+    const { summary } = diffLines(left, right);
+    expect(summary.changed).toBe(n / 10);
+    expect(summary.unchanged).toBe(n - n / 10);
+    expect(summary.added + summary.removed).toBe(0);
+  });
+});
+
 describe("diffLines — key-based reconciliation", () => {
   const key = { delimiter: ",", index: 1 };
 

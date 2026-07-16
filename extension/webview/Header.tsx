@@ -1,23 +1,41 @@
-import type { DiffResultMessage } from "../src/protocol";
-import type { DiffStatus } from "@large-file-compare/engine";
+import type { FileInfo } from "../src/protocol";
+import type { DiffStatus, DiffSummary } from "@large-file-compare/engine";
 import type { ViewMode } from "./DiffList";
 
+/** Just the parts of a comparison the header renders. */
+interface HeaderData {
+  left: FileInfo;
+  right: FileInfo;
+  summary: DiffSummary;
+}
+
 interface HeaderProps {
-  data: DiffResultMessage;
+  data: HeaderData;
   mode: ViewMode;
   onModeChange: (mode: ViewMode) => void;
-  /** Jump through visible rows of this status: +1 = next, -1 = previous. */
-  onNavigate: (status: DiffStatus, direction: 1 | -1) => void;
+  /** Start navigating rows of this status (jumps to the first, opens the nav bar). */
+  onNavigate: (status: DiffStatus) => void;
   /** How many rows of each status are currently visible (for enabling chips). */
   navCounts: Record<DiffStatus, number>;
+  /** Re-read both files from disk and re-run the comparison. */
+  onReload: () => void;
 }
 
 /** Top bar: file names, per-category counts, and the layout toggle. */
-export function Header({ data, mode, onModeChange, onNavigate, navCounts }: HeaderProps) {
+export function Header({ data, mode, onModeChange, onNavigate, navCounts, onReload }: HeaderProps) {
   const { left, right, summary } = data;
   return (
     <header className="header">
       <div className="files">
+        <button
+          type="button"
+          className="reload-btn"
+          onClick={onReload}
+          title="Reload both files from disk and re-compare"
+          aria-label="Reload"
+        >
+          ↻
+        </button>
         <span className="file">{left.name}</span>
         <span className="vs">vs</span>
         <span className="file">{right.name}</span>
@@ -61,7 +79,7 @@ function Chip({
   status: DiffStatus;
   value: number;
   navCount: number;
-  onNavigate: (status: DiffStatus, direction: 1 | -1) => void;
+  onNavigate: (status: DiffStatus) => void;
 }) {
   const disabled = navCount === 0;
   return (
@@ -69,12 +87,8 @@ function Chip({
       type="button"
       className={`chip chip-${status}`}
       disabled={disabled}
-      title={
-        disabled
-          ? `No ${status} rows in view`
-          : `Click: next ${status} row · Shift+click: previous (${navCount})`
-      }
-      onClick={(event) => onNavigate(status, event.shiftKey ? -1 : 1)}
+      title={disabled ? `No ${status} rows in view` : `Navigate the ${navCount} ${status} rows`}
+      onClick={() => onNavigate(status)}
     >
       {value.toLocaleString()} {status}
     </button>

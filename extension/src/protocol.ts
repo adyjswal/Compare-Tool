@@ -1,10 +1,12 @@
 /**
  * Messages passed between the extension host and the webview.
  *
- * Shared by both sides so the shape can't drift. The row/summary types come
- * straight from the engine, so there's a single source of truth.
+ * Shared by both sides so the shape can't drift. The diff result crosses in a
+ * compact columnar form (three parallel arrays, not a million row objects) so
+ * structured-clone stays cheap at 1M rows; the webview rebuilds row objects.
  */
-import type { DiffRow, DiffSummary, SortOptions } from "@large-file-compare/engine";
+import type { DiffSummary } from "@large-file-compare/engine";
+import type { CompareOptions } from "./worker/messages";
 
 /** Lightweight description of a compared file (just what the header needs). */
 export interface FileInfo {
@@ -13,7 +15,15 @@ export interface FileInfo {
   empty: boolean;
 }
 
-/** Host → webview: here is a completed comparison to render. */
+/** Host → webview: progress while the worker reads / diffs. */
+export interface StatusMessage {
+  type: "status";
+  phase: "reading" | "diffing";
+  /** Lines read so far (during the reading phase). */
+  lines?: number;
+}
+
+/** Host → webview: a completed comparison, in columnar form. */
 export interface DiffResultMessage {
   type: "diffResult";
   /**
@@ -25,7 +35,17 @@ export interface DiffResultMessage {
   left: FileInfo;
   right: FileInfo;
   summary: DiffSummary;
-  rows: DiffRow[];
+  /** Per-row status code; see STATUS_CODES in worker/messages. */
+  statuses: Uint8Array;
+  /** Per-row text; "" where that side is absent (implied by the status). */
+  lefts: string[];
+  rights: string[];
+}
+
+/** Host → webview: the comparison failed (unreadable / binary / etc.). */
+export interface ErrorMessage {
+  type: "error";
+  message: string;
 }
 
 /** Webview → host: the React app has mounted and is ready to receive data. */
@@ -33,18 +53,21 @@ export interface ReadyMessage {
   type: "ready";
 }
 
-/**
- * Webview → host: re-run the comparison with a new sort.
- *
- * `options === null` restores the original file order (positional compare).
- * Otherwise both files are sorted with these options and compared in "set"
- * mode, where line positions no longer carry meaning. Sorting lives in the host
- * because that's where the engine (and the full file contents) already are.
- */
-export interface SortRequestMessage {
-  type: "sort";
-  options: SortOptions | null;
+/** Webview → host: re-run the comparison with new sort / key options. */
+export interface CompareMessage {
+  type: "compare";
+  options: CompareOptions;
 }
 
-export type HostToWebviewMessage = DiffResultMessage;
-export type WebviewToHostMessage = ReadyMessage | SortRequestMessage;
+/** Webview → host: abort the running comparison. */
+export interface CancelMessage {
+  type: "cancel";
+}
+
+/** Webview → host: re-read both files from disk and re-run the comparison. */
+export interface ReloadMessage {
+  type: "reload";
+}
+
+export type HostToWebviewMessage = StatusMessage | DiffResultMessage | ErrorMessage;
+export type WebviewToHostMessage = ReadyMessage | CompareMessage | CancelMessage | ReloadMessage;
