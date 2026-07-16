@@ -13,7 +13,7 @@ export function activate(context: vscode.ExtensionContext): void {
     "largeFileCompare.compareFiles",
     async () => {
       try {
-        await compareFilesCommand();
+        await compareFilesCommand(context);
       } catch (err) {
         // Backstop so nothing fails silently; friendlier per-case messages are
         // shown inside the command itself, and richer handling comes in phase 5.

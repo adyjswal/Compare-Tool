@@ -46,10 +46,11 @@ Open this folder in VS Code and press **F5** (uses `.vscode/launch.json`). That 
 Host** — with the extension loaded.
 
 In that window, open the Command Palette (`Ctrl+Shift+P`) and run
-**“Large File Compare: Compare Two Files”**. Pick two text files and it reports a
-diff summary (unchanged / changed / removed / added). Files are compared **as-is** —
-sorting is an opt-in step added in a later phase. The virtualized side-by-side view
-comes in phase 3.
+**“Large File Compare: Compare Two Files”**. Pick two text files and a **Large File
+Compare** panel opens showing the diff in a virtualized list — only the visible rows
+are in the DOM, so it stays smooth at 200–300k lines — with a header summary
+(unchanged / changed / removed / added). Files are compared **as-is**; sorting is an
+opt-in step added in a later phase.
 
 ## Useful scripts (run from the repo root)
 
@@ -70,7 +71,7 @@ Per-package watch modes are also available:
 - **Phase 0 — Scaffold** ✅ monorepo, extension skeleton, build/run wiring.
 - **Phase 1 — Engine** ✅ reader, sorter, differ, filter as pure functions + Vitest tests.
 - **Phase 2 — Command** ✅ file pickers → engine → summary, inside the extension host.
-- **Phase 3 — Webview** React + react-window virtualized diff view.
+- **Phase 3 — Webview** ✅ React + react-window virtualized diff view.
 - **Phase 4 — Controls** sort options + filter box wired back into the engine.
 - **Phase 5 — Polish** loading states + error handling (missing/empty/binary files).
 

@@ -1,0 +1,115 @@
+/*
+ * Uses VS Code theme variables (--vscode-*) so the panel matches the user's
+ * current light/dark theme automatically.
+ */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ---- Header ---- */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+}
+
+.files {
+  font-weight: 600;
+}
+
+.vs {
+  margin: 0 6px;
+  opacity: 0.6;
+}
+
+.chips {
+  display: flex;
+  gap: 8px;
+}
+
+.chip {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.chip-unchanged {
+  background: var(--vscode-badge-background, rgba(128, 128, 128, 0.3));
+  color: var(--vscode-badge-foreground, inherit);
+}
+.chip-added {
+  background: rgba(46, 160, 67, 0.28);
+}
+.chip-removed {
+  background: rgba(248, 81, 73, 0.28);
+}
+.chip-changed {
+  background: rgba(210, 153, 34, 0.32);
+}
+
+/* ---- Virtualized list ---- */
+.diff-list {
+  flex: 1 1 auto;
+  /* Allow this flex child to shrink so the inner scroll container gets a
+     bounded height instead of growing forever. */
+  min-height: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  line-height: 20px;
+  white-space: pre;
+  overflow: hidden;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 13px);
+}
+
+.marker {
+  flex: 0 0 auto;
+  width: 2ch;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.text {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-added {
+  background: rgba(46, 160, 67, 0.15);
+}
+.row-removed {
+  background: rgba(248, 81, 73, 0.15);
+}
+.row-changed {
+  background: rgba(210, 153, 34, 0.15);
+}
+
+.placeholder {
+  padding: 20px;
+  opacity: 0.7;
+}

@@ -1,15 +1,17 @@
 /*
- * Bundles the extension host code (src/extension.ts) into a single dist/extension.js.
+ * Builds two separate bundles:
  *
- * Why bundle: the extension depends on the local `@large-file-compare/engine`
- * workspace package. esbuild inlines it (and any other deps) so the published
- * .vsix is self-contained and loads fast. `vscode` is the one module we must NOT
- * bundle -- it is provided by the editor at runtime, so it is marked external.
+ *  1. The extension HOST (src/extension.ts) → dist/extension.js
+ *     Runs in Node inside VS Code. `vscode` is external (provided by the editor).
+ *
+ *  2. The WEBVIEW (webview/index.tsx) → dist/webview.js (+ dist/webview.css)
+ *     Runs in a browser-like sandbox. React, react-dom and react-window are
+ *     bundled in. CSS imported from the entry is emitted as a sibling file.
  *
  * Usage:
  *   node esbuild.js              one-shot dev build (with sourcemaps)
- *   node esbuild.js --watch      rebuild on change
- *   node esbuild.js --production minified build for packaging
+ *   node esbuild.js --watch      rebuild both on change
+ *   node esbuild.js --production minified builds for packaging
  */
 const esbuild = require("esbuild");
 
@@ -17,7 +19,7 @@ const production = process.argv.includes("--production");
 const watch = process.argv.includes("--watch");
 
 /** @type {import('esbuild').BuildOptions} */
-const buildOptions = {
+const extensionHost = {
   entryPoints: ["src/extension.ts"],
   bundle: true,
   format: "cjs",
@@ -30,14 +32,34 @@ const buildOptions = {
   logLevel: "info",
 };
 
+/** @type {import('esbuild').BuildOptions} */
+const webview = {
+  entryPoints: ["webview/index.tsx"],
+  bundle: true,
+  format: "iife",
+  platform: "browser",
+  target: "es2020",
+  outfile: "dist/webview.js",
+  jsx: "automatic",
+  loader: { ".css": "css" },
+  // React reads this to pick its dev vs production build.
+  define: { "process.env.NODE_ENV": production ? '"production"' : '"development"' },
+  sourcemap: !production,
+  minify: production,
+  logLevel: "info",
+};
+
 async function main() {
   if (watch) {
-    const ctx = await esbuild.context(buildOptions);
-    await ctx.watch();
-    console.log("[esbuild] watching for changes...");
+    const contexts = await Promise.all([
+      esbuild.context(extensionHost),
+      esbuild.context(webview),
+    ]);
+    await Promise.all(contexts.map((ctx) => ctx.watch()));
+    console.log("[esbuild] watching for changes (extension host + webview)...");
   } else {
-    await esbuild.build(buildOptions);
-    console.log("[esbuild] build complete");
+    await Promise.all([esbuild.build(extensionHost), esbuild.build(webview)]);
+    console.log("[esbuild] build complete (extension host + webview)");
   }
 }
 

@@ -26,14 +26,20 @@
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "package": "node esbuild.js --production",
-    "check-types": "tsc --noEmit -p tsconfig.json",
+    "check-types": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p webview/tsconfig.json",
     "vscode:prepublish": "npm run package"
   },
   "dependencies": {
-    "@large-file-compare/engine": "*"
+    "@large-file-compare/engine": "*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-window": "^1.8.11"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/react-window": "^1.8.8",
     "@types/vscode": "^1.90.0",
     "esbuild": "^0.28.1",
     "typescript": "^5.5.4"

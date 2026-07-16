@@ -2,9 +2,11 @@
 # We ship only the bundled output (dist/) + manifest + docs.
 .vscode/**
 src/**
+webview/**
 node_modules/**
 esbuild.js
 tsconfig.json
 **/*.ts
+**/*.tsx
 **/*.map
 .gitignore

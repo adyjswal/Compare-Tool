@@ -1,19 +1,19 @@
 import { basename } from "node:path";
 import * as vscode from "vscode";
 import { diffLines, readFileDocument } from "@large-file-compare/engine";
-import type { DiffSummary, FileDocument } from "@large-file-compare/engine";
+import type { FileDocument } from "@large-file-compare/engine";
+import { showDiffResult } from "../panel/diffPanel";
 
 /**
- * The "Compare Two Files" command (phase 2).
+ * The "Compare Two Files" command.
  *
  * Flow: pick two files → read both via the engine → diff them *as-is* (no
- * sorting, default positional mode) → show a summary. There is no webview yet;
- * this exists to prove the engine works end-to-end inside the extension host.
+ * sorting, default positional mode) → render the result in the webview panel.
  *
  * Only the obvious failure cases are handled here (cancel, unreadable, binary).
  * Richer error/loading handling is phase 5.
  */
-export async function compareFilesCommand(): Promise<void> {
+export async function compareFilesCommand(context: vscode.ExtensionContext): Promise<void> {
   const leftUri = await pickFile("Select the FIRST file (left)");
   if (!leftUri) {
     return; // user cancelled
@@ -49,9 +49,9 @@ export async function compareFilesCommand(): Promise<void> {
 
   // Compare as-is: no sorting, default positional mode (modified lines pair
   // into "changed"). Sorting will become an opt-in step in a later phase.
-  const { summary } = diffLines(left.lines, right.lines);
+  const result = diffLines(left.lines, right.lines);
 
-  void vscode.window.showInformationMessage(summaryMessage(left, right, summary));
+  showDiffResult(context, left, right, result);
 }
 
 /** Show a single-file open dialog, returning the chosen Uri (or undefined). */
@@ -82,22 +82,6 @@ async function pickFile(prompt: string): Promise<vscode.Uri | undefined> {
     },
   });
   return picked?.[0];
-}
-
-/** One-line, human-readable comparison summary. */
-function summaryMessage(left: FileDocument, right: FileDocument, summary: DiffSummary): string {
-  return (
-    `${describe(left)} vs ${describe(right)} — ` +
-    `${summary.unchanged.toLocaleString()} unchanged · ` +
-    `${summary.changed.toLocaleString()} changed · ` +
-    `${summary.removed.toLocaleString()} removed · ` +
-    `${summary.added.toLocaleString()} added`
-  );
-}
-
-function describe(doc: FileDocument): string {
-  const name = basename(doc.path);
-  return doc.isEmpty ? `${name} (empty)` : `${name} (${doc.lines.length.toLocaleString()} lines)`;
 }
 
 function toMessage(err: unknown): string {
