@@ -1,0 +1,41 @@
+{
+  "name": "large-file-compare",
+  "displayName": "Large File Compare",
+  "description": "Sort and compare very large text files (200k-300k lines) such as SQL exports and structured config/property files.",
+  "version": "0.0.1",
+  "publisher": "your-publisher-id",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "largeFileCompare.compareFiles",
+        "title": "Compare Two Files",
+        "category": "Large File Compare"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production",
+    "check-types": "tsc --noEmit -p tsconfig.json",
+    "vscode:prepublish": "npm run package"
+  },
+  "dependencies": {
+    "@large-file-compare/engine": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.23.0",
+    "typescript": "^5.5.4"
+  }
+}

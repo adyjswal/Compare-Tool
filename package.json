@@ -1,0 +1,18 @@
+{
+  "name": "large-file-compare-monorepo",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Monorepo for the Large File Compare VS Code extension: a reusable pure-TS engine plus the VS Code wrapper.",
+  "license": "MIT",
+  "workspaces": [
+    "engine",
+    "extension"
+  ],
+  "scripts": {
+    "build:engine": "npm run build --workspace @large-file-compare/engine",
+    "build:extension": "npm run build --workspace large-file-compare",
+    "compile": "npm run build:engine && npm run build:extension",
+    "check-types": "npm run check-types --workspace large-file-compare",
+    "test": "npm run test --workspace @large-file-compare/engine"
+  }
+}

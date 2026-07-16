@@ -1,0 +1,16 @@
+{
+  "$comment": "Shared TypeScript compiler options for the Node side of the repo (engine + extension host). The React webview will get its own tsconfig later, since it needs DOM libs and JSX.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "lib": ["ES2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "sourceMap": true,
+    "declaration": false
+  }
+}

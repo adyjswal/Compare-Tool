@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+
+# Packaged extension
+*.vsix
+
+# Test / coverage
+coverage/
+
+# Logs & OS cruft
+*.log
+.DS_Store
+Thumbs.db

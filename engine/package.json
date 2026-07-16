@@ -1,0 +1,23 @@
+{
+  "name": "@large-file-compare/engine",
+  "version": "0.0.1",
+  "description": "Pure-TypeScript core for Large File Compare: reading, sorting, diffing, and filtering. No editor/IDE dependencies, so it can back other IDE plugins later.",
+  "license": "MIT",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "diff": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/diff": "^5.2.1",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.8"
+  }
+}
