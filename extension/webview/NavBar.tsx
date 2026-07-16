@@ -15,9 +15,11 @@ interface NavBarProps {
   pos: number;
   total: number;
   onGo: (dir: "first" | "prev" | "next" | "last") => void;
+  /** Dismiss the navigation bar (back to normal). */
+  onClose: () => void;
 }
 
-export function NavBar({ label, tone, pos, total, onGo }: NavBarProps) {
+export function NavBar({ label, tone, pos, total, onGo, onClose }: NavBarProps) {
   const empty = total === 0;
   const position = empty ? "0" : `${pos >= 0 ? pos + 1 : "–"} / ${total.toLocaleString()}`;
 
@@ -31,6 +33,15 @@ export function NavBar({ label, tone, pos, total, onGo }: NavBarProps) {
         <NavStep title="Next" disabled={empty} onClick={() => onGo("next")} icon={<NextIcon />} />
         <NavStep title="Last" disabled={empty} onClick={() => onGo("last")} icon={<LastIcon />} />
       </div>
+      <button
+        type="button"
+        className="navbar-close"
+        title="Close (Esc)"
+        aria-label="Close navigation"
+        onClick={onClose}
+      >
+        <CloseIcon />
+      </button>
     </div>
   );
 }
@@ -81,5 +92,10 @@ const LastIcon = () => (
   <SVG>
     <path d="M4 5l4 4 4-4" />
     <path d="M4 12.5h8" />
+  </SVG>
+);
+const CloseIcon = () => (
+  <SVG>
+    <path d="M4 4l8 8M12 4l-8 8" />
   </SVG>
 );

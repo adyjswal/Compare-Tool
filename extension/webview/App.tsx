@@ -218,6 +218,27 @@ export function App() {
     jumpTo(indices[0]);
   };
 
+  // Dismiss the nav bar: back to normal, clearing the current-row marker.
+  const dismissNav = () => {
+    setNav(null);
+    setNavPos(-1);
+    setCurrentIndex(null);
+  };
+
+  // Escape closes the nav bar (like a find widget) while it's open.
+  useEffect(() => {
+    if (!nav) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        dismissNav();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [nav]);
+
   // ---- Ask the host (worker) to re-compare with new sort / key options ----
   const requestCompare = (next: {
     sort: SortChoice;
@@ -300,7 +321,16 @@ export function App() {
         ignoreCaseSort={ignoreCaseSort}
         onIgnoreCaseSortChange={onIgnoreCaseSortChange}
       />
-      {nav && <NavBar label={navLabel} tone={navTone} pos={navPos} total={navIndices.length} onGo={go} />}
+      {nav && (
+        <NavBar
+          label={navLabel}
+          tone={navTone}
+          pos={navPos}
+          total={navIndices.length}
+          onGo={go}
+          onClose={dismissNav}
+        />
+      )}
       {phase && <div className="banner banner-info">Re-comparing…</div>}
       {banner && <div className={`banner banner-${banner.tone}`}>{banner.text}</div>}
       <DiffList

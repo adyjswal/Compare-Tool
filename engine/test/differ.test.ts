@@ -87,6 +87,40 @@ describe("diffLines — prefix/suffix trimming (large-file fast path)", () => {
     expect(rows).toEqual([{ status: "unchanged", left: "Hello ", right: "hello" }]);
   });
 
+  it("does NOT flag unrelated lines as changed — reports removed + added instead", () => {
+    // A block replaced by an unrelated block (e.g. one table swapped for another).
+    const left = ["shared", "readiness_score INT CHECK (x)", "blockers TEXT", "tail"];
+    const right = ["shared", "status VARCHAR(50) DEFAULT 'draft'", "priority VARCHAR(20)", "tail"];
+    const { summary } = diffLines(left, right);
+    expect(summary.changed).toBe(0); // nothing is a genuine edit of the other
+    expect(summary.removed).toBe(2);
+    expect(summary.added).toBe(2);
+    expect(summary.unchanged).toBe(2); // shared, tail
+  });
+
+  it("still flags a genuine value edit (shared words) as changed", () => {
+    const { rows, summary } = diffLines(
+      ["id SERIAL PRIMARY KEY,"],
+      ["id UUID PRIMARY KEY DEFAULT gen_random_uuid(),"],
+    );
+    expect(summary.changed).toBe(1);
+    expect(rows[0]).toEqual({
+      status: "changed",
+      left: "id SERIAL PRIMARY KEY,",
+      right: "id UUID PRIMARY KEY DEFAULT gen_random_uuid(),",
+    });
+  });
+
+  it("keeps every line exactly once, in order (truthful partition)", () => {
+    const left = ["a", "id SERIAL,", "gone1", "gone2", "b"];
+    const right = ["a", "id UUID,", "fresh1", "fresh2", "fresh3", "b"];
+    const { rows } = diffLines(left, right);
+    const leftOut = rows.filter((r) => r.left !== undefined).map((r) => r.left);
+    const rightOut = rows.filter((r) => r.right !== undefined).map((r) => r.right);
+    expect(leftOut).toEqual(left); // same lines, same order, no drops/dupes
+    expect(rightOut).toEqual(right);
+  });
+
   it("handles 200k lines with scattered differences without hanging", () => {
     // Every 10th line differs. With a naive Myers diff this is ~O(N·D) and hangs;
     // patience anchoring on the many unique unchanged lines keeps it fast. If this

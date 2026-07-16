@@ -320,10 +320,26 @@ function reconstructSet(ops: Op[], left: readonly string[], right: readonly stri
   return rows;
 }
 
+/** A removed+added pair is only reported as `changed` when the two lines share
+ *  at least this fraction of their words — otherwise it's a genuine
+ *  removal + addition, not one line "changing into" the other. */
+const SIMILARITY_THRESHOLD = 0.5;
+
 /**
- * "positional" mode: pair a run of removed lines with the run of added lines
- * that replaced it into `changed` rows (leftovers stay pure removed/added). We
- * buffer pending removed/added lines and flush them at each unchanged boundary.
+ * "positional" mode: within a modified block, a removed line is reported as
+ * `changed` (paired with an added line) ONLY if the two are actually similar;
+ * lines that just happen to sit at the same position but are unrelated stay as
+ * separate `removed` + `added`, so the tool never claims an edit that isn't one.
+ *
+ * This only affects *labelling*: every removed line still appears once (as the
+ * left of a `changed` row or as a `removed` row) and every added line once, in
+ * their original order — so the categories remain a correct, complete, ordered
+ * partition of the diff.
+ *
+ * A block with no similar pairs (a wholesale replacement) is emitted as a clean
+ * removed-block then added-block, like VS Code. A block that DOES contain some
+ * genuine edits is emitted in positional order (changed rows inline, unrelated
+ * pairs as an adjacent removed + added) so left/right lines never reorder.
  */
 function reconstructPositional(
   ops: Op[],
@@ -337,18 +353,42 @@ function reconstructPositional(
   let pendingAdded: string[] = [];
 
   const flush = () => {
-    const paired = Math.min(pendingRemoved.length, pendingAdded.length);
-    for (let i = 0; i < paired; i++) {
-      rows.push({ status: "changed", left: pendingRemoved[i], right: pendingAdded[i] });
-    }
-    for (let i = paired; i < pendingRemoved.length; i++) {
-      rows.push({ status: "removed", left: pendingRemoved[i] });
-    }
-    for (let i = paired; i < pendingAdded.length; i++) {
-      rows.push({ status: "added", right: pendingAdded[i] });
-    }
+    const removed = pendingRemoved;
+    const added = pendingAdded;
     pendingRemoved = [];
     pendingAdded = [];
+
+    const paired = Math.min(removed.length, added.length);
+    const similar: boolean[] = [];
+    let anySimilar = false;
+    for (let i = 0; i < paired; i++) {
+      similar[i] = similarLines(removed[i], added[i]);
+      anySimilar = anySimilar || similar[i];
+    }
+
+    if (!anySimilar) {
+      // Wholesale replacement: removed block, then added block (order intact).
+      for (const line of removed) rows.push({ status: "removed", left: line });
+      for (const line of added) rows.push({ status: "added", right: line });
+      return;
+    }
+
+    // Mixed block: keep positional order. Similar pairs are `changed`; unrelated
+    // pairs become an adjacent removed + added rather than a false `changed`.
+    for (let i = 0; i < paired; i++) {
+      if (similar[i]) {
+        rows.push({ status: "changed", left: removed[i], right: added[i] });
+      } else {
+        rows.push({ status: "removed", left: removed[i] });
+        rows.push({ status: "added", right: added[i] });
+      }
+    }
+    for (let i = paired; i < removed.length; i++) {
+      rows.push({ status: "removed", left: removed[i] });
+    }
+    for (let i = paired; i < added.length; i++) {
+      rows.push({ status: "added", right: added[i] });
+    }
   };
 
   for (const { op, n } of ops) {
@@ -363,6 +403,41 @@ function reconstructPositional(
   }
   flush();
   return rows;
+}
+
+/**
+ * Are two lines similar enough to call one a `changed` version of the other?
+ * Uses word-set overlap (Sørensen–Dice) on lower-cased word tokens, so a value
+ * edit ("id SERIAL…" → "id UUID…") counts as changed, while two unrelated lines
+ * that merely landed at the same position do not. Conservative by design: when
+ * in doubt it reports "not similar", so we never over-claim an edit.
+ */
+function similarLines(a: string, b: string): boolean {
+  const wa = wordSet(a);
+  const wb = wordSet(b);
+  if (wa.size === 0 && wb.size === 0) {
+    return true; // e.g. two punctuation-only lines like "();" vs "()"
+  }
+  const [small, large] = wa.size <= wb.size ? [wa, wb] : [wb, wa];
+  let common = 0;
+  for (const word of small) {
+    if (large.has(word)) {
+      common++;
+    }
+  }
+  return (2 * common) / (wa.size + wb.size) >= SIMILARITY_THRESHOLD;
+}
+
+/** Lower-cased set of word tokens in a line (ignores whitespace/punctuation). */
+function wordSet(line: string): Set<string> {
+  const set = new Set<string>();
+  const tokens = line.toLowerCase().match(/\w+/g);
+  if (tokens) {
+    for (const token of tokens) {
+      set.add(token);
+    }
+  }
+  return set;
 }
 
 /* ------------------------------------------------------------------ *

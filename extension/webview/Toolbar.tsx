@@ -77,7 +77,8 @@ export function Toolbar({
           <input
             type="search"
             className="search-input"
-            placeholder="Find in both files…  (Enter = next, Shift+Enter = previous)"
+            placeholder="Find in both files…"
+            title="Enter = next match, Shift+Enter = previous"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             onKeyDown={onKeyDown}

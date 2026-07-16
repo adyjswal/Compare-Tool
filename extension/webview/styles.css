@@ -144,7 +144,7 @@ body {
 }
 
 .search-input {
-  min-width: 200px;
+  min-width: 240px;
   padding: 3px 8px;
   color: var(--vscode-input-foreground, inherit);
   background: var(--vscode-input-background, transparent);
@@ -306,6 +306,27 @@ body {
 .navbar-step svg {
   display: block;
 }
+.navbar-close {
+  margin-left: auto; /* push to the far right of the bar */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.7;
+  color: var(--vscode-foreground);
+  background: transparent;
+}
+.navbar-close:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+.navbar-close svg {
+  display: block;
+}
 
 .sort-label {
   font-size: 12px;
@@ -347,10 +368,25 @@ body {
 }
 
 .diff-body {
+  display: flex;
+  flex-direction: row;
   flex: 1 1 auto;
   /* Allow this flex child to shrink so the inner scroll containers get a
      bounded height instead of growing forever. */
   min-height: 0;
+}
+.diff-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+}
+
+/* Overview ruler / change map down the right edge. */
+.overview-ruler {
+  flex: 0 0 auto;
+  cursor: pointer;
+  border-left: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  background: var(--vscode-editorGutter-background, var(--vscode-editor-background));
 }
 
 /* File-name headers, one per pane, aligned over the two lists. */
@@ -406,16 +442,23 @@ body {
 .lineno {
   flex: 0 0 auto;
   width: 6ch;
+  /* Fill the full row height so the opaque background always covers the gutter —
+     even on a filler row where the number is blank — keeping the diagonal hatch
+     (and any scrolled content) out of the number column. */
+  align-self: stretch;
+  line-height: 20px;
   padding: 0 8px 0 4px;
   text-align: right;
-  opacity: 0.55;
-  color: var(--vscode-editorLineNumber-foreground, inherit);
+  /* Dim the number via its colour only — NOT element opacity, which would make
+     the background translucent and let the line text bleed through when the
+     content scrolls horizontally under the pinned gutter. */
+  color: var(--vscode-editorLineNumber-foreground, rgba(128, 128, 128, 0.9));
   user-select: none;
   /* Stay pinned to the left while the line content scrolls horizontally. */
   position: sticky;
   left: 0;
   z-index: 1;
-  background: var(--vscode-editor-background);
+  background: var(--vscode-editorGutter-background, var(--vscode-editor-background));
 }
 
 /* ---- Unified layout ---- */
@@ -450,6 +493,11 @@ body {
 /* ---- Side-by-side cells ---- */
 .cell {
   flex: 1 1 auto;
+  /* Fill the full row height so a background (e.g. the filler hatch) paints the
+     whole row even when the cell is empty. Stretch only — no display:flex, so
+     the inline text / highlight / word-diff segments keep flowing normally. */
+  align-self: stretch;
+  line-height: 20px;
   padding: 0 6px;
   white-space: pre;
 }
@@ -465,9 +513,24 @@ body {
 .pane-right .row-changed {
   background: rgba(46, 160, 67, 0.15);
 }
-.pane-left .row-added,
-.pane-right .row-removed {
-  background: rgba(128, 128, 128, 0.06);
+/* The side with no corresponding line (left of an added row, right of a removed
+   row) gets a diagonal hatch — the VS Code "filler" look that clearly says
+   "nothing here". It's on the CELL (content area) only, so the line-number
+   gutter stays clean like VS Code; the cell now stretches to full row height
+   (see .cell) so the hatch fills the row.
+
+   The stripe period is 7.07px along the 45° axis, i.e. exactly 10px vertically
+   (7.07 × √2), which divides the 20px row height — so the diagonals tile
+   seamlessly across stacked filler rows instead of staircasing. */
+.pane-left .row-added .cell,
+.pane-right .row-removed .cell {
+  background: repeating-linear-gradient(
+    45deg,
+    transparent 0,
+    transparent 5.07px,
+    var(--vscode-diffEditor-diagonalFill, rgba(200, 200, 200, 0.22)) 5.07px,
+    var(--vscode-diffEditor-diagonalFill, rgba(200, 200, 200, 0.22)) 7.07px
+  );
 }
 
 /* The row the user last jumped to via a chip. A solid selection-style fill
@@ -481,6 +544,18 @@ body {
 .row-current .lineno,
 .row-current .marker {
   background: var(--vscode-list-activeSelectionBackground, rgba(0, 127, 212, 0.35));
+}
+
+/* Word-level inline diff: the exact changed span within a `changed` row, a
+   stronger shade than the row's overall tint so it pops. Red = removed side,
+   green = added side (matches the pane colours). */
+.word-del {
+  background: rgba(248, 81, 73, 0.4);
+  border-radius: 2px;
+}
+.word-add {
+  background: rgba(46, 160, 67, 0.4);
+  border-radius: 2px;
 }
 
 /* Find matches highlighted inline in the line text. */
