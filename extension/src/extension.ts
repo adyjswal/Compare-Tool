@@ -1,25 +1,26 @@
 import * as vscode from "vscode";
-import { engineInfo } from "@large-file-compare/engine";
+import { compareFilesCommand } from "./commands/compareFiles";
 
 /**
  * Extension entry point.
  *
  * VS Code calls activate() the first time one of our contributed commands runs.
  * (The activation event for `largeFileCompare.compareFiles` is implicit because
- * the command is declared in package.json > contributes.commands, so we don't
- * need to list it in activationEvents.)
+ * the command is declared in package.json > contributes.commands.)
  */
 export function activate(context: vscode.ExtensionContext): void {
   const disposable = vscode.commands.registerCommand(
     "largeFileCompare.compareFiles",
-    () => {
-      // Phase 0 skeleton: prove the command runs AND that the pure-TS engine is
-      // reachable from the extension host. The real flow (file pickers -> engine
-      // sort/diff -> virtualized webview) is built in the later phases.
-      vscode.window.showInformationMessage(
-        `Large File Compare is alive. ${engineInfo()}`
-      );
-    }
+    async () => {
+      try {
+        await compareFilesCommand();
+      } catch (err) {
+        // Backstop so nothing fails silently; friendlier per-case messages are
+        // shown inside the command itself, and richer handling comes in phase 5.
+        const message = err instanceof Error ? err.message : String(err);
+        void vscode.window.showErrorMessage(`Large File Compare: ${message}`);
+      }
+    },
   );
 
   context.subscriptions.push(disposable);
