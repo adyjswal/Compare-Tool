@@ -19,8 +19,43 @@
         "command": "largeFileCompare.compareFiles",
         "title": "Compare Two Files",
         "category": "Large File Compare"
+      },
+      {
+        "command": "largeFileCompare.selectForCompare",
+        "title": "Select for Compare (Large File)",
+        "category": "Large File Compare"
+      },
+      {
+        "command": "largeFileCompare.compareWithSelected",
+        "title": "Compare with Selected (Large File)",
+        "category": "Large File Compare"
       }
-    ]
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "largeFileCompare.selectForCompare",
+          "when": "!explorerResourceIsFolder",
+          "group": "3_compare@1"
+        },
+        {
+          "command": "largeFileCompare.compareWithSelected",
+          "when": "largeFileCompare.hasSelectedForCompare && !explorerResourceIsFolder",
+          "group": "3_compare@2"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "largeFileCompare.selectForCompare",
+          "group": "3_compare@1"
+        },
+        {
+          "command": "largeFileCompare.compareWithSelected",
+          "when": "largeFileCompare.hasSelectedForCompare",
+          "group": "3_compare@2"
+        }
+      ]
+    }
   },
   "scripts": {
     "build": "node esbuild.js",

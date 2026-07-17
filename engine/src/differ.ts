@@ -44,7 +44,7 @@ export function diffLines(
 
   const rows = options.key
     ? diffByKey(left, right, options.key, normalize)
-    : diffWholeLine(left, right, options.mode ?? "positional", normalize);
+    : diffWholeLine(left, right, options.mode ?? "positional", normalize, options.pairChanged ?? true);
 
   return { rows, summary: summarize(rows) };
 }
@@ -101,6 +101,7 @@ function diffWholeLine(
   right: readonly string[],
   mode: DiffMode,
   normalize: (s: string) => string,
+  pairChanged: boolean,
 ): DiffRow[] {
   const dict = new Map<string, number>();
   let nextId = 0;
@@ -117,7 +118,9 @@ function diffWholeLine(
   const b = right.map(idOf);
 
   const ops = diffIds(a, b);
-  return mode === "positional" ? reconstructPositional(ops, left, right) : reconstructSet(ops, left, right);
+  return mode === "positional"
+    ? reconstructPositional(ops, left, right, pairChanged)
+    : reconstructSet(ops, left, right);
 }
 
 /** Append a run to `ops`, coalescing with the previous run of the same kind. */
@@ -320,10 +323,10 @@ function reconstructSet(ops: Op[], left: readonly string[], right: readonly stri
   return rows;
 }
 
-/** A removed+added pair is only reported as `changed` when the two lines share
- *  at least this fraction of their words — otherwise it's a genuine
- *  removal + addition, not one line "changing into" the other. */
-const SIMILARITY_THRESHOLD = 0.5;
+/** A removed+added pair is only reported as `changed` when the two lines are at
+ *  least this similar. Conservative on purpose: below this they're a genuine
+ *  removal + addition, so we never claim an edit that isn't clearly one. */
+const SIMILARITY_THRESHOLD = 0.6;
 
 /**
  * "positional" mode: within a modified block, a removed line is reported as
@@ -345,6 +348,7 @@ function reconstructPositional(
   ops: Op[],
   left: readonly string[],
   right: readonly string[],
+  pairChanged: boolean,
 ): DiffRow[] {
   const rows: DiffRow[] = [];
   let lc = 0;
@@ -357,6 +361,13 @@ function reconstructPositional(
     const added = pendingAdded;
     pendingRemoved = [];
     pendingAdded = [];
+
+    // Strict (git-style): never pair — an edit is a removed line + an added line.
+    if (!pairChanged) {
+      for (const line of removed) rows.push({ status: "removed", left: line });
+      for (const line of added) rows.push({ status: "added", right: line });
+      return;
+    }
 
     const paired = Math.min(removed.length, added.length);
     const similar: boolean[] = [];
@@ -407,37 +418,48 @@ function reconstructPositional(
 
 /**
  * Are two lines similar enough to call one a `changed` version of the other?
- * Uses word-set overlap (Sørensen–Dice) on lower-cased word tokens, so a value
- * edit ("id SERIAL…" → "id UUID…") counts as changed, while two unrelated lines
- * that merely landed at the same position do not. Conservative by design: when
- * in doubt it reports "not similar", so we never over-claim an edit.
+ *
+ * Uses character-bigram overlap (Sørensen–Dice) on a normalized form (trimmed,
+ * lower-cased, whitespace collapsed). Bigrams compare *structure*, so:
+ *  - a value edit in an otherwise-identical line scores high → `changed`;
+ *  - two lines that merely share a keyword or a coincidental value/number score
+ *    low → they stay separate `removed` + `added` (no fabricated edit);
+ *  - punctuation-only or repeated-word lines don't get a false full-match.
+ * Conservative by design: when in doubt it reports "not similar".
  */
 function similarLines(a: string, b: string): boolean {
-  const wa = wordSet(a);
-  const wb = wordSet(b);
-  if (wa.size === 0 && wb.size === 0) {
-    return true; // e.g. two punctuation-only lines like "();" vs "()"
+  const na = normalizeForSimilarity(a);
+  const nb = normalizeForSimilarity(b);
+  if (na === nb) {
+    return true; // identical once normalized (e.g. only case/whitespace differs)
   }
-  const [small, large] = wa.size <= wb.size ? [wa, wb] : [wb, wa];
+  const countA = na.length - 1;
+  const countB = nb.length - 1;
+  if (countA < 1 || countB < 1) {
+    return false; // a line shorter than 2 chars, and they aren't equal → unrelated
+  }
+
+  // Multiset intersection of adjacent character pairs.
+  const grams = new Map<string, number>();
+  for (let i = 0; i + 1 <= na.length - 1; i++) {
+    const gram = na.slice(i, i + 2);
+    grams.set(gram, (grams.get(gram) ?? 0) + 1);
+  }
   let common = 0;
-  for (const word of small) {
-    if (large.has(word)) {
+  for (let i = 0; i + 1 <= nb.length - 1; i++) {
+    const gram = nb.slice(i, i + 2);
+    const count = grams.get(gram);
+    if (count && count > 0) {
       common++;
+      grams.set(gram, count - 1);
     }
   }
-  return (2 * common) / (wa.size + wb.size) >= SIMILARITY_THRESHOLD;
+  return (2 * common) / (countA + countB) >= SIMILARITY_THRESHOLD;
 }
 
-/** Lower-cased set of word tokens in a line (ignores whitespace/punctuation). */
-function wordSet(line: string): Set<string> {
-  const set = new Set<string>();
-  const tokens = line.toLowerCase().match(/\w+/g);
-  if (tokens) {
-    for (const token of tokens) {
-      set.add(token);
-    }
-  }
-  return set;
+/** Normalize a line for similarity: trim, lower-case, collapse whitespace runs. */
+function normalizeForSimilarity(line: string): string {
+  return line.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 /* ------------------------------------------------------------------ *

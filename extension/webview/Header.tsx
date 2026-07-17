@@ -17,12 +17,25 @@ interface HeaderProps {
   onNavigate: (status: DiffStatus) => void;
   /** How many rows of each status are currently visible (for enabling chips). */
   navCounts: Record<DiffStatus, number>;
-  /** Re-read both files from disk and re-run the comparison. */
+  /** Re-read both sides (disk or live editor) and re-compare. */
   onReload: () => void;
+  /** Swap which side is source (left) vs target (right). */
+  onSwap: () => void;
+  /** Open one side's document in an editor tab to edit it. */
+  onOpenSide: (side: "left" | "right") => void;
 }
 
 /** Top bar: file names, per-category counts, and the layout toggle. */
-export function Header({ data, mode, onModeChange, onNavigate, navCounts, onReload }: HeaderProps) {
+export function Header({
+  data,
+  mode,
+  onModeChange,
+  onNavigate,
+  navCounts,
+  onReload,
+  onSwap,
+  onOpenSide,
+}: HeaderProps) {
   const { left, right, summary } = data;
   return (
     <header className="header">
@@ -31,14 +44,36 @@ export function Header({ data, mode, onModeChange, onNavigate, navCounts, onRelo
           type="button"
           className="reload-btn"
           onClick={onReload}
-          title="Reload both files from disk and re-compare"
+          title="Reload both sides (picks up edits) and re-compare"
           aria-label="Reload"
         >
           ↻
         </button>
-        <span className="file">{left.name}</span>
-        <span className="vs">vs</span>
-        <span className="file">{right.name}</span>
+        <button
+          type="button"
+          className="file-link"
+          onClick={() => onOpenSide("left")}
+          title={`Open ${left.name} to edit`}
+        >
+          {left.name}
+        </button>
+        <button
+          type="button"
+          className="swap-btn"
+          onClick={onSwap}
+          title="Swap source / target"
+          aria-label="Swap sides"
+        >
+          ⇄
+        </button>
+        <button
+          type="button"
+          className="file-link"
+          onClick={() => onOpenSide("right")}
+          title={`Open ${right.name} to edit`}
+        >
+          {right.name}
+        </button>
       </div>
 
       <div className="header-right">

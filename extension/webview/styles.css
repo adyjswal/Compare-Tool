@@ -54,6 +54,40 @@ body {
   background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
 }
 
+/* File names are buttons that open the document in an editor tab to edit. */
+.file-link {
+  border: none;
+  background: transparent;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--vscode-textLink-foreground, var(--vscode-foreground));
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-link:hover {
+  text-decoration: underline;
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.swap-btn {
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 13px;
+  line-height: 1.2;
+  cursor: pointer;
+  color: var(--vscode-foreground);
+  background: transparent;
+}
+.swap-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
 .vs {
   margin: 0 6px;
   opacity: 0.6;

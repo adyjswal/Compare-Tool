@@ -20,7 +20,7 @@ export async function compareFilesCommand(context: vscode.ExtensionContext): Pro
     return; // user cancelled
   }
 
-  showComparison(context, leftUri.fsPath, rightUri.fsPath);
+  showComparison(context, leftUri, rightUri);
 }
 
 /** Show a single-file open dialog, returning the chosen Uri (or undefined). */

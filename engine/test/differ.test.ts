@@ -98,17 +98,46 @@ describe("diffLines — prefix/suffix trimming (large-file fast path)", () => {
     expect(summary.unchanged).toBe(2); // shared, tail
   });
 
-  it("still flags a genuine value edit (shared words) as changed", () => {
+  it("still flags a genuine value edit (mostly identical line) as changed", () => {
     const { rows, summary } = diffLines(
-      ["id SERIAL PRIMARY KEY,"],
-      ["id UUID PRIMARY KEY DEFAULT gen_random_uuid(),"],
+      ["    email VARCHAR(255) NOT NULL DEFAULT 'old@x.com',"],
+      ["    email VARCHAR(255) NOT NULL DEFAULT 'new@x.com',"],
     );
     expect(summary.changed).toBe(1);
     expect(rows[0]).toEqual({
       status: "changed",
-      left: "id SERIAL PRIMARY KEY,",
-      right: "id UUID PRIMARY KEY DEFAULT gen_random_uuid(),",
+      left: "    email VARCHAR(255) NOT NULL DEFAULT 'old@x.com',",
+      right: "    email VARCHAR(255) NOT NULL DEFAULT 'new@x.com',",
     });
+  });
+
+  it("does not fabricate a 'changed' from coincidental token/structure overlap", () => {
+    // Share only a keyword / a value / nothing meaningful → removed + added.
+    expect(diffLines(["return return return return"], ["return null throw"]).summary.changed).toBe(
+      0,
+    );
+    expect(diffLines(["max_connections: 100"], ["port: 100"]).summary.changed).toBe(0);
+    expect(diffLines([";"], [")"]).summary.changed).toBe(0);
+  });
+
+  it("recognizes a rename with identical content as changed (kebab → fused)", () => {
+    expect(diffLines(["user-name: John Smith"], ["username: John Smith"]).summary.changed).toBe(1);
+  });
+
+  it("does not pair boilerplate-similar-but-unrelated lines as changed (~0.5)", () => {
+    // Share 'CREATE TABLE (' structure but are different tables -> removed + added.
+    const s = diffLines(["CREATE TABLE on_prem_servers ("], ["CREATE TABLE cloud_resources ("]).summary;
+    expect(s.changed).toBe(0);
+    expect(s.removed).toBe(1);
+    expect(s.added).toBe(1);
+  });
+
+  it("pairChanged:false gives git-style output (never pairs; only added/removed)", () => {
+    const s = diffLines(["a", "b", "c"], ["a", "B", "c"], { pairChanged: false }).summary;
+    expect(s.changed).toBe(0);
+    expect(s.unchanged).toBe(2); // a, c
+    expect(s.removed).toBe(1); // b
+    expect(s.added).toBe(1); // B
   });
 
   it("keeps every line exactly once, in order (truthful partition)", () => {

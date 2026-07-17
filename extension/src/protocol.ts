@@ -64,10 +64,27 @@ export interface CancelMessage {
   type: "cancel";
 }
 
-/** Webview → host: re-read both files from disk and re-run the comparison. */
+/** Webview → host: re-read both sides (disk or live editor) and re-compare. */
 export interface ReloadMessage {
   type: "reload";
 }
 
+/** Webview → host: swap which side is source (left) vs target (right). */
+export interface SwapMessage {
+  type: "swap";
+}
+
+/** Webview → host: open one side's document in an editor tab for editing. */
+export interface OpenSideMessage {
+  type: "openSide";
+  side: "left" | "right";
+}
+
 export type HostToWebviewMessage = StatusMessage | DiffResultMessage | ErrorMessage;
-export type WebviewToHostMessage = ReadyMessage | CompareMessage | CancelMessage | ReloadMessage;
+export type WebviewToHostMessage =
+  | ReadyMessage
+  | CompareMessage
+  | CancelMessage
+  | ReloadMessage
+  | SwapMessage
+  | OpenSideMessage;

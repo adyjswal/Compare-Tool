@@ -7,12 +7,24 @@
  * line arrays, so subsequent `recompute` requests (a new sort or key column)
  * don't re-read from disk.
  */
-import { basename } from "node:path";
 import { parentPort } from "node:worker_threads";
-import { diffLines, readFileDocumentStreamed, sortLines } from "@large-file-compare/engine";
+import {
+  diffLines,
+  isProbablyBinary,
+  readFileDocumentStreamed,
+  sortLines,
+  splitLines,
+} from "@large-file-compare/engine";
 import type { DiffResult, FileDocument } from "@large-file-compare/engine";
 import { STATUS_CODES } from "./messages";
-import type { CompareOptions, ColumnarResult, FileMeta, WorkerRequest, WorkerResponse } from "./messages";
+import type {
+  CompareOptions,
+  ColumnarResult,
+  FileMeta,
+  Side,
+  WorkerRequest,
+  WorkerResponse,
+} from "./messages";
 
 const port = parentPort;
 if (!port) {
@@ -39,10 +51,10 @@ port.on("message", (request: WorkerRequest) => {
 async function handle(request: WorkerRequest): Promise<void> {
   if (request.type === "load") {
     post({ type: "progress", id: request.id, phase: "reading" });
-    left = await readFileDocumentStreamed(request.leftPath, (lines) =>
+    left = await resolveSide(request.left, (lines) =>
       post({ type: "progress", id: request.id, phase: "reading", lines }),
     );
-    right = await readFileDocumentStreamed(request.rightPath, (lines) =>
+    right = await resolveSide(request.right, (lines) =>
       post({ type: "progress", id: request.id, phase: "reading", lines }),
     );
     post({ type: "meta", id: request.id, left: toMeta(left), right: toMeta(right) });
@@ -63,21 +75,41 @@ async function handle(request: WorkerRequest): Promise<void> {
   post({ type: "result", id: request.id, result: toColumnar(result) });
 }
 
+/** Turn a side into a FileDocument: stream a file from disk, or split live text. */
+async function resolveSide(
+  side: Side,
+  onProgress: (lines: number) => void,
+): Promise<FileDocument> {
+  if (side.kind === "file") {
+    const doc = await readFileDocumentStreamed(side.path, onProgress);
+    return { ...doc, path: side.name };
+  }
+  // Live text (untitled / unsaved edits) still needs the binary check — e.g. a
+  // binary file opened in the text editor and edited becomes a content side.
+  if (isProbablyBinary(side.text)) {
+    return { path: side.name, lines: [], isEmpty: side.text.length === 0, isBinary: true };
+  }
+  const lines = splitLines(side.text);
+  return { path: side.name, lines, isEmpty: lines.length === 0, isBinary: false };
+}
+
 /** Run the requested comparison: key mode > sorted (set) mode > positional. */
 function compute(
   leftLines: string[],
   rightLines: string[],
   compare: CompareOptions,
 ): DiffResult {
+  const trim = compare.ignoreWhitespace;
   if (compare.key) {
-    return diffLines(leftLines, rightLines, { key: compare.key });
+    return diffLines(leftLines, rightLines, { key: compare.key, trim });
   }
   if (compare.sort) {
     return diffLines(sortLines(leftLines, compare.sort), sortLines(rightLines, compare.sort), {
       mode: "set",
+      trim,
     });
   }
-  return diffLines(leftLines, rightLines);
+  return diffLines(leftLines, rightLines, { pairChanged: compare.pairChanged, trim });
 }
 
 /** Pack the row objects into parallel columns for a cheap structured clone. */
@@ -97,7 +129,7 @@ function toColumnar(result: DiffResult): ColumnarResult {
 
 function toMeta(doc: FileDocument): FileMeta {
   return {
-    path: basename(doc.path),
+    path: doc.path, // already the display name set in resolveSide
     lineCount: doc.lines.length,
     empty: doc.isEmpty,
     binary: doc.isBinary,

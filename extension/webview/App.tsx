@@ -50,6 +50,13 @@ export function App() {
   const [delimiter, setDelimiter] = useState(",");
   const [keyColumn, setKeyColumn] = useState(1);
 
+  // Pair a removed+added line into one "changed" row (on) vs keep them separate
+  // git-style (off). Only affects the default whole-line positional compare.
+  const [pairChanged, setPairChanged] = useState(true);
+  // Ignore leading/trailing whitespace when comparing (on) vs compare exactly
+  // like git (off). Affects every compare mode.
+  const [ignoreWhitespace, setIgnoreWhitespace] = useState(true);
+
   const comparisonId = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -75,6 +82,8 @@ export function App() {
           setCompareBy("line");
           setDelimiter(",");
           setKeyColumn(1);
+          setPairChanged(true);
+          setIgnoreWhitespace(true);
           setNav(null);
           setNavPos(-1);
         }
@@ -246,15 +255,35 @@ export function App() {
     by: CompareBy;
     delim: string;
     col: number;
+    pair: boolean;
+    ws: boolean;
   }) => {
     const options: CompareOptions =
       next.by === "column"
-        ? { sort: null, key: { delimiter: next.delim, index: next.col } }
-        : { sort: toSortOptions(next.sort, next.ignoreCase), key: null };
+        ? {
+            sort: null,
+            key: { delimiter: next.delim, index: next.col },
+            pairChanged: next.pair,
+            ignoreWhitespace: next.ws,
+          }
+        : {
+            sort: toSortOptions(next.sort, next.ignoreCase),
+            key: null,
+            pairChanged: next.pair,
+            ignoreWhitespace: next.ws,
+          };
     getVsCodeApi().postMessage({ type: "compare", options });
   };
 
-  const current = { sort, ignoreCase: ignoreCaseSort, by: compareBy, delim: delimiter, col: keyColumn };
+  const current = {
+    sort,
+    ignoreCase: ignoreCaseSort,
+    by: compareBy,
+    delim: delimiter,
+    col: keyColumn,
+    pair: pairChanged,
+    ws: ignoreWhitespace,
+  };
 
   const onSortChange = (nextSort: SortChoice) => {
     setSort(nextSort);
@@ -280,6 +309,14 @@ export function App() {
       requestCompare({ ...current, col: value });
     }
   };
+  const onPairChangedChange = (value: boolean) => {
+    setPairChanged(value);
+    requestCompare({ ...current, pair: value });
+  };
+  const onIgnoreWhitespaceChange = (value: boolean) => {
+    setIgnoreWhitespace(value);
+    requestCompare({ ...current, ws: value });
+  };
 
   if (error) {
     return <div className="placeholder error-view">{error}</div>;
@@ -301,6 +338,8 @@ export function App() {
         onNavigate={handleChip}
         navCounts={navCounts}
         onReload={() => getVsCodeApi().postMessage({ type: "reload" })}
+        onSwap={() => getVsCodeApi().postMessage({ type: "swap" })}
+        onOpenSide={(side) => getVsCodeApi().postMessage({ type: "openSide", side })}
       />
       <Toolbar
         query={query}
@@ -316,6 +355,10 @@ export function App() {
         onDelimiterChange={onDelimiterChange}
         keyColumn={keyColumn}
         onKeyColumnChange={onKeyColumnChange}
+        pairChanged={pairChanged}
+        onPairChangedChange={onPairChangedChange}
+        ignoreWhitespace={ignoreWhitespace}
+        onIgnoreWhitespaceChange={onIgnoreWhitespaceChange}
         sort={sort}
         onSortChange={onSortChange}
         ignoreCaseSort={ignoreCaseSort}

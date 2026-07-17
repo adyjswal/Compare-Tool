@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { basename } from "node:path";
 import { Worker } from "node:worker_threads";
 import * as vscode from "vscode";
 import type {
@@ -11,6 +11,7 @@ import type {
 import type {
   CompareOptions,
   FileMeta,
+  Side,
   WorkerRequest,
   WorkerResponse,
 } from "../worker/messages";
@@ -18,11 +19,11 @@ import type {
 /**
  * Manages the single webview panel and the diff worker behind it.
  *
- * We keep one panel and reuse it across comparisons. A worker thread owns the
- * (potentially huge) file line arrays and does the heavy read/sort/diff off the
- * host thread, streaming back progress and a compact columnar result. The panel
- * relays those to the webview, holding the most recent message so it can be
- * re-sent once the webview reports it's `ready`.
+ * A comparison side is a VS Code Uri (a file, or an open/untitled document).
+ * The panel resolves each side to a worker `Side`: a saved, unmodified file is
+ * streamed from disk (fast on huge files); an untitled or unsaved-edited
+ * document uses its live text. Reload re-resolves both, so edits made in a tab
+ * — saved or not — show up on the next reload.
  */
 
 interface Session {
@@ -30,8 +31,8 @@ interface Session {
   requestId: number;
   compare: CompareOptions;
   comparisonId: number;
-  leftPath: string;
-  rightPath: string;
+  leftUri: vscode.Uri;
+  rightUri: vscode.Uri;
   left?: FileMeta;
   right?: FileMeta;
 }
@@ -40,34 +41,80 @@ let currentPanel: vscode.WebviewPanel | undefined;
 let session: Session | undefined;
 let pendingMessage: HostToWebviewMessage | undefined;
 let comparisonCounter = 0;
+let workerPath = "";
 
-/** Open (or reuse) the diff panel and start comparing two files. */
+/** Open (or reuse) the diff panel and start comparing two documents. */
 export function showComparison(
   context: vscode.ExtensionContext,
-  leftPath: string,
-  rightPath: string,
+  leftUri: vscode.Uri,
+  rightUri: vscode.Uri,
 ): void {
+  workerPath = vscode.Uri.joinPath(context.extensionUri, "dist", "diffWorker.js").fsPath;
   ensurePanel(context);
   currentPanel?.reveal(vscode.ViewColumn.Active);
 
   // Fresh comparison: tear down any previous worker and start a new one.
   session?.worker.terminate();
-  const worker = new Worker(join(context.extensionUri.fsPath, "dist", "diffWorker.js"));
-  const compare: CompareOptions = { sort: null, key: null };
+  const worker = new Worker(workerPath);
   session = {
     worker,
     requestId: 1,
-    compare,
+    compare: { sort: null, key: null, pairChanged: true, ignoreWhitespace: true },
     comparisonId: ++comparisonCounter,
-    leftPath,
-    rightPath,
+    leftUri,
+    rightUri,
   };
 
   worker.on("message", (response: WorkerResponse) => onWorkerMessage(response));
   worker.on("error", (err) => send({ type: "error", message: toMessage(err) }));
 
+  void loadSession();
+}
+
+/** Resolve both sides (disk or live text) and send them to the worker. */
+async function loadSession(): Promise<void> {
+  const active = session;
+  if (!active) {
+    return;
+  }
+  // Snapshot the request id *before* awaiting. reload/swap/recompute mutate the
+  // same session object in place, so an object-identity check alone wouldn't
+  // catch them — comparing this scalar after the await does.
+  const requestId = active.requestId;
   send({ type: "status", phase: "reading" });
-  post(worker, { type: "load", id: session.requestId, leftPath, rightPath, compare });
+  try {
+    const [left, right] = await Promise.all([resolveSide(active.leftUri), resolveSide(active.rightUri)]);
+    if (session !== active || active.requestId !== requestId) {
+      return; // superseded by a new comparison, reload, swap, or recompute
+    }
+    post(active.worker, { type: "load", id: requestId, left, right, compare: active.compare });
+  } catch (err) {
+    if (session === active && active.requestId === requestId) {
+      send({ type: "error", message: toMessage(err) });
+    }
+  }
+}
+
+/**
+ * A saved file that isn't open-with-unsaved-edits is streamed from disk (cheap
+ * for huge files); an untitled doc, or a file with unsaved edits, uses its live
+ * in-editor text so pasted/edited content is compared as shown.
+ */
+async function resolveSide(uri: vscode.Uri): Promise<Side> {
+  const name = uriName(uri);
+  const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString());
+  if (uri.scheme === "file" && (!open || !open.isDirty)) {
+    return { kind: "file", name, path: uri.fsPath };
+  }
+  const doc = open ?? (await vscode.workspace.openTextDocument(uri));
+  return { kind: "content", name, text: doc.getText() };
+}
+
+function uriName(uri: vscode.Uri): string {
+  if (uri.scheme === "untitled") {
+    return basename(uri.path) || "Untitled";
+  }
+  return basename(uri.fsPath);
 }
 
 /** Handle a message coming back from the worker for the active session. */
@@ -169,7 +216,22 @@ function onWebviewMessage(message: WebviewToHostMessage): void {
       recompute(message);
       return;
     case "reload":
-      reload();
+      session.requestId += 1;
+      void loadSession();
+      return;
+    case "swap": {
+      const { leftUri } = session;
+      session.leftUri = session.rightUri;
+      session.rightUri = leftUri;
+      session.requestId += 1;
+      void loadSession();
+      return;
+    }
+    case "openSide":
+      void vscode.window.showTextDocument(
+        message.side === "left" ? session.leftUri : session.rightUri,
+        { viewColumn: vscode.ViewColumn.Beside, preview: false },
+      );
       return;
     case "cancel":
       session.worker.terminate();
@@ -177,26 +239,6 @@ function onWebviewMessage(message: WebviewToHostMessage): void {
       session = undefined;
       return;
   }
-}
-
-/**
- * Re-read both files from disk and re-run the comparison, keeping the same
- * comparison id (so the webview preserves its sort/find/view state) and the
- * current sort/key options (so the refreshed result matches what's on screen).
- */
-function reload(): void {
-  if (!session) {
-    return;
-  }
-  session.requestId += 1;
-  send({ type: "status", phase: "reading" });
-  post(session.worker, {
-    type: "load",
-    id: session.requestId,
-    leftPath: session.leftPath,
-    rightPath: session.rightPath,
-    compare: session.compare,
-  });
 }
 
 /** Re-run the current comparison under new sort / key options. */
@@ -210,7 +252,6 @@ function recompute(message: CompareMessage): void {
   post(session.worker, { type: "recompute", id: session.requestId, compare: message.options });
 }
 
-/** Post a request to the worker (moving the status buffer is worker→host only). */
 function post(worker: Worker, request: WorkerRequest): void {
   worker.postMessage(request);
 }

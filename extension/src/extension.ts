@@ -1,29 +1,41 @@
 import * as vscode from "vscode";
 import { compareFilesCommand } from "./commands/compareFiles";
+import { compareWithSelected, selectForCompare } from "./commands/compareSelected";
 
 /**
  * Extension entry point.
  *
  * VS Code calls activate() the first time one of our contributed commands runs.
- * (The activation event for `largeFileCompare.compareFiles` is implicit because
- * the command is declared in package.json > contributes.commands.)
+ * (Activation events for the commands are implicit because they're declared in
+ * package.json > contributes.commands.)
  */
 export function activate(context: vscode.ExtensionContext): void {
-  const disposable = vscode.commands.registerCommand(
-    "largeFileCompare.compareFiles",
-    async () => {
-      try {
-        await compareFilesCommand(context);
-      } catch (err) {
-        // Backstop so nothing fails silently; friendlier per-case messages are
-        // shown inside the command itself, and richer handling comes in phase 5.
-        const message = err instanceof Error ? err.message : String(err);
-        void vscode.window.showErrorMessage(`Large File Compare: ${message}`);
-      }
-    },
-  );
+  // The "Compare with Selected" menu is gated on this key. Nothing is selected
+  // on a fresh host, so start it false (the selection state doesn't survive a
+  // host restart, but the renderer's context key would otherwise linger).
+  void vscode.commands.executeCommand("setContext", "largeFileCompare.hasSelectedForCompare", false);
 
-  context.subscriptions.push(disposable);
+  const guard = (fn: () => void | Promise<void>) => async () => {
+    try {
+      await fn();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      void vscode.window.showErrorMessage(`Large File Compare: ${message}`);
+    }
+  };
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "largeFileCompare.compareFiles",
+      guard(() => compareFilesCommand(context)),
+    ),
+    vscode.commands.registerCommand("largeFileCompare.selectForCompare", (uri?: vscode.Uri) =>
+      guard(() => selectForCompare(uri))(),
+    ),
+    vscode.commands.registerCommand("largeFileCompare.compareWithSelected", (uri?: vscode.Uri) =>
+      guard(() => compareWithSelected(context, uri))(),
+    ),
+  );
 }
 
 export function deactivate(): void {

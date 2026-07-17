@@ -32,6 +32,10 @@ interface ToolbarProps {
   onDelimiterChange: (value: string) => void;
   keyColumn: number;
   onKeyColumnChange: (value: number) => void;
+  pairChanged: boolean;
+  onPairChangedChange: (value: boolean) => void;
+  ignoreWhitespace: boolean;
+  onIgnoreWhitespaceChange: (value: boolean) => void;
   sort: SortChoice;
   onSortChange: (sort: SortChoice) => void;
   ignoreCaseSort: boolean;
@@ -55,6 +59,10 @@ export function Toolbar({
   onDelimiterChange,
   keyColumn,
   onKeyColumnChange,
+  pairChanged,
+  onPairChangedChange,
+  ignoreWhitespace,
+  onIgnoreWhitespaceChange,
   sort,
   onSortChange,
   ignoreCaseSort,
@@ -149,6 +157,19 @@ export function Toolbar({
             </label>
           </>
         )}
+        {!byColumn && sort === "original" && (
+          <label
+            className="check"
+            title="On: an edited line is shown as one 'changed' row with the exact change highlighted. Off: it's shown as a separate removed line + added line, like git."
+          >
+            <input
+              type="checkbox"
+              checked={pairChanged}
+              onChange={(event) => onPairChangedChange(event.target.checked)}
+            />
+            Show edits as changed
+          </label>
+        )}
       </div>
 
       <div className="toolbar-group sort-group">
@@ -179,6 +200,20 @@ export function Toolbar({
             Ignore case
           </label>
         )}
+      </div>
+
+      <div className="toolbar-group">
+        <label
+          className="check"
+          title="On: ignore leading/trailing whitespace — lines that differ only in spacing count as unchanged. Off: compare whitespace exactly, like git."
+        >
+          <input
+            type="checkbox"
+            checked={ignoreWhitespace}
+            onChange={(event) => onIgnoreWhitespaceChange(event.target.checked)}
+          />
+          Ignore whitespace
+        </label>
       </div>
     </div>
   );

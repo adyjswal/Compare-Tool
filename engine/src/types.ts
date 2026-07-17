@@ -111,4 +111,11 @@ export interface DiffOptions {
   trim?: boolean;
   /** Compare case-insensitively. Default: false. */
   caseInsensitive?: boolean;
+  /**
+   * In positional mode, pair a removed line with a similar added line into a
+   * single `changed` row (editor-style). When false, an edited line stays as a
+   * separate `removed` + `added` (git-style — never claims a false pairing).
+   * Default: true. Ignored in "set" mode and key mode (they never pair).
+   */
+  pairChanged?: boolean;
 }

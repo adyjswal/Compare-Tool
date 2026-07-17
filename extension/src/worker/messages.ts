@@ -13,7 +13,22 @@ import type { ColumnSpec, DiffSummary, SortOptions } from "@large-file-compare/e
 export interface CompareOptions {
   sort: SortOptions | null;
   key: ColumnSpec | null;
+  /** Positional mode only: pair similar removed+added lines as one `changed`
+   *  row (true), or keep them separate git-style (false). */
+  pairChanged: boolean;
+  /** Ignore leading/trailing whitespace when deciding if two lines are equal
+   *  (true, default). False compares whitespace exactly, like git. */
+  ignoreWhitespace: boolean;
 }
+
+/**
+ * One side of a comparison. Either a file the worker streams from disk (fast,
+ * low-memory for huge files), or already-resolved text from a live editor /
+ * untitled document (so pasted or unsaved content can be compared too).
+ */
+export type Side =
+  | { kind: "file"; name: string; path: string }
+  | { kind: "content"; name: string; text: string };
 
 /** Lightweight per-file facts the header needs (plus the binary flag). */
 export interface FileMeta {
@@ -40,7 +55,7 @@ export const STATUS_CODES = ["unchanged", "added", "removed", "changed"] as cons
 
 /* ---- host → worker ---- */
 export type WorkerRequest =
-  | { type: "load"; id: number; leftPath: string; rightPath: string; compare: CompareOptions }
+  | { type: "load"; id: number; left: Side; right: Side; compare: CompareOptions }
   | { type: "recompute"; id: number; compare: CompareOptions };
 
 /* ---- worker → host ---- */
