@@ -1,15 +1,20 @@
 # Large File Compare
 
-A VS Code extension that **sorts and compares very large text files** (200,000–300,000
-lines) — SQL exports, structured property/config files, and the like — where VS Code's
+A VS Code extension that **sorts and compares very large text files** (200k–2M lines) —
+SQL exports, structured property/config files, CSV dumps, and the like — where VS Code's
 built-in diff editor struggles. It replaces the "sort in Excel, paste into VS Code,
 eyeball it" workaround.
+
+On a 1M-line CSV pair, VS Code's built-in diff took **30–40 s**, lagged, and dropped the
+side-by-side view; this renders side-by-side in **~5 s** and scrolls smoothly. It also does
+two things the built-in can't do at any size: **sort-then-compare** (for unordered exports)
+and **key-column compare** (match rows by an ID field, to reconcile reordered dumps).
 
 ## Repository layout
 
 This is an **npm workspaces monorepo** with two packages:
 
-```
+```text
 .
 ├── engine/       Pure TypeScript core — reading, sorting, diffing, filtering.
 │                 NO dependency on `vscode`. Reusable by future IDE plugins
@@ -98,6 +103,14 @@ Per-package watch modes are also available:
 - **Phase 6b — Key-column compare** ✅ match rows by a delimited key column (SQL/CSV).
 - **Phase 7 — Views + export** ✅ unchanged-rows view (all / collapsed folds / only changes),
   export to CSV/text, copy a row, and a packaged `.vsix`.
+
+### Possible future work
+
+- **Density-shaded overview ruler** — shade each pixel by *how many* changes fall in it, so
+  "changes everywhere" reads differently from "a dense cluster here" (the current map
+  saturates to solid red/green when edits are dense and evenly spread across a huge file).
+- **Partial fold expansion** — GitHub-style "expand up / down" on a collapsed run, instead of
+  expanding the whole run at once.
 
 ## Notes
 

@@ -7,7 +7,7 @@ import type {
   WindowMessage,
 } from "../src/protocol";
 import type { CompareOptions } from "../src/worker/messages";
-import type { DiffStatus, DiffSummary, SortOptions } from "@large-file-compare/engine";
+import type { ColumnSpec, DiffStatus, DiffSummary, SortOptions } from "@large-file-compare/engine";
 import { getVsCodeApi } from "./vscodeApi";
 import { Header } from "./Header";
 import { Toolbar } from "./Toolbar";
@@ -59,6 +59,13 @@ export function App() {
   const [pairChanged, setPairChanged] = useState(true);
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(true);
 
+  // Key-column compare: match rows by one delimited column (a record's "key")
+  // instead of the whole line. Off by default; when on it takes precedence over
+  // sort (the engine gives `key` priority).
+  const [keyEnabled, setKeyEnabled] = useState(false);
+  const [keyDelimiter, setKeyDelimiter] = useState(",");
+  const [keyColumn, setKeyColumn] = useState(1);
+
   // Unchanged-rows view (feature 1 & 2): "all" shows every row, "changes" hides
   // unchanged rows, "collapsed" folds long unchanged runs. `expanded` holds the
   // run-start indices the user has clicked open in collapsed mode.
@@ -108,6 +115,9 @@ export function App() {
           setPairChanged(true);
           setIgnoreWhitespace(true);
           setViewMode("all");
+          setKeyEnabled(false);
+          setKeyDelimiter(",");
+          setKeyColumn(1);
         }
         // Rows changed (fresh compare or recompute): drop cached text + nav, and
         // any fold expansions (row indices are no longer meaningful).
@@ -396,10 +406,18 @@ export function App() {
     sort: SortChoice;
     pair: boolean;
     ws: boolean;
+    keyOn: boolean;
+    keyDelim: string;
+    keyCol: number;
   }) => {
+    // Key mode takes precedence over sort (the engine ignores sort when a key is
+    // set), so don't send a sort at the same time — keeps the request honest.
+    const key: ColumnSpec | null = next.keyOn
+      ? { delimiter: next.keyDelim, index: Math.max(1, Math.floor(next.keyCol) || 1) }
+      : null;
     const options: CompareOptions = {
-      sort: toSortOptions(next.sort),
-      key: null,
+      sort: key ? null : toSortOptions(next.sort),
+      key,
       pairChanged: next.pair,
       ignoreWhitespace: next.ws,
     };
@@ -410,6 +428,9 @@ export function App() {
     sort,
     pair: pairChanged,
     ws: ignoreWhitespace,
+    keyOn: keyEnabled,
+    keyDelim: keyDelimiter,
+    keyCol: keyColumn,
   };
 
   const onSortChange = (nextSort: SortChoice) => {
@@ -423,6 +444,22 @@ export function App() {
   const onIgnoreWhitespaceChange = (value: boolean) => {
     setIgnoreWhitespace(value);
     requestCompare({ ...current, ws: value });
+  };
+  const onKeyEnabledChange = (value: boolean) => {
+    setKeyEnabled(value);
+    requestCompare({ ...current, keyOn: value });
+  };
+  const onKeyDelimiterChange = (value: string) => {
+    setKeyDelimiter(value);
+    if (keyEnabled) {
+      requestCompare({ ...current, keyDelim: value });
+    }
+  };
+  const onKeyColumnChange = (value: number) => {
+    setKeyColumn(value);
+    if (keyEnabled) {
+      requestCompare({ ...current, keyCol: value });
+    }
   };
 
   if (error) {
@@ -461,6 +498,12 @@ export function App() {
         onSortChange={onSortChange}
         viewMode={viewMode}
         onViewModeChange={changeViewMode}
+        keyEnabled={keyEnabled}
+        onKeyEnabledChange={onKeyEnabledChange}
+        keyDelimiter={keyDelimiter}
+        onKeyDelimiterChange={onKeyDelimiterChange}
+        keyColumn={keyColumn}
+        onKeyColumnChange={onKeyColumnChange}
       />
       {nav && (
         <NavBar

@@ -11,6 +11,9 @@ out/
 # Test / coverage
 coverage/
 
+# Generated benchmark data (large; regenerate with bench/large-diff-bench.js)
+bench/data/
+
 # Logs & OS cruft
 *.log
 .DS_Store

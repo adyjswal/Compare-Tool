@@ -1,6 +1,10 @@
 import * as vscode from "vscode";
 import { compareFilesCommand } from "./commands/compareFiles";
-import { compareWithSelected, selectForCompare } from "./commands/compareSelected";
+import {
+  compareSelectedFiles,
+  compareWithSelected,
+  selectForCompare,
+} from "./commands/compareSelected";
 
 /**
  * Extension entry point.
@@ -28,6 +32,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       "largeFileCompare.compareFiles",
       guard(() => compareFilesCommand(context)),
+    ),
+    vscode.commands.registerCommand(
+      "largeFileCompare.compareSelectedFiles",
+      (uri?: vscode.Uri, uris?: vscode.Uri[]) =>
+        guard(() => compareSelectedFiles(context, uri, uris))(),
     ),
     vscode.commands.registerCommand("largeFileCompare.selectForCompare", (uri?: vscode.Uri) =>
       guard(() => selectForCompare(uri))(),

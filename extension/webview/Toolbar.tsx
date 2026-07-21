@@ -29,6 +29,13 @@ interface ToolbarProps {
   /** Which unchanged-row view is active (all / collapsed / only changes). */
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  /** Key-column compare: match rows by one delimited column instead of the whole line. */
+  keyEnabled: boolean;
+  onKeyEnabledChange: (value: boolean) => void;
+  keyDelimiter: string;
+  onKeyDelimiterChange: (value: string) => void;
+  keyColumn: number;
+  onKeyColumnChange: (value: number) => void;
 }
 
 export function Toolbar({
@@ -45,6 +52,12 @@ export function Toolbar({
   onSortChange,
   viewMode,
   onViewModeChange,
+  keyEnabled,
+  onKeyEnabledChange,
+  keyDelimiter,
+  onKeyDelimiterChange,
+  keyColumn,
+  onKeyColumnChange,
 }: ToolbarProps) {
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
@@ -120,6 +133,8 @@ export function Toolbar({
           id="sort-select"
           className="sort-select"
           value={sort}
+          disabled={keyEnabled}
+          title={keyEnabled ? "Disabled while comparing by key column" : undefined}
           onChange={(event) => onSortChange(event.target.value as SortChoice)}
         >
           <option value="original">Original order</option>
@@ -130,7 +145,47 @@ export function Toolbar({
         </select>
       </div>
 
-      {sort === "original" && (
+      <div className="toolbar-group key-group">
+        <label
+          className="check"
+          title="Match rows by one delimited column (a record's key) instead of the whole line. Same key + different content = a 'changed' row — handy for reconciling reordered CSV/SQL exports."
+        >
+          <input
+            type="checkbox"
+            checked={keyEnabled}
+            onChange={(event) => onKeyEnabledChange(event.target.checked)}
+          />
+          Compare by key column
+        </label>
+        {keyEnabled && (
+          <span className="key-col">
+            <label htmlFor="key-delim">delim</label>
+            <select
+              id="key-delim"
+              className="sort-select"
+              value={keyDelimiter}
+              onChange={(event) => onKeyDelimiterChange(event.target.value)}
+            >
+              <option value=",">Comma ,</option>
+              <option value={"\t"}>Tab ⇥</option>
+              <option value="|">Pipe |</option>
+              <option value=";">Semicolon ;</option>
+            </select>
+            <label htmlFor="key-col">col</label>
+            <input
+              id="key-col"
+              className="key-input"
+              type="number"
+              min={1}
+              value={keyColumn}
+              title="1-based column number to match on"
+              onChange={(event) => onKeyColumnChange(Number(event.target.value))}
+            />
+          </span>
+        )}
+      </div>
+
+      {sort === "original" && !keyEnabled && (
         <div className="toolbar-group">
           <label
             className="check"

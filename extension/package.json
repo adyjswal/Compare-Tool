@@ -1,11 +1,17 @@
 {
   "name": "large-file-compare",
   "displayName": "Large File Compare",
-  "description": "Sort and compare very large text files (200k-1M lines) such as SQL exports and structured config/property files.",
-  "version": "0.1.0",
+  "description": "Sort and compare very large text files (200k-2M lines) such as SQL exports, CSV dumps, and structured config/property files.",
+  "version": "0.1.1",
   "publisher": "your-publisher-id",
   "license": "MIT",
   "icon": "media/icon.png",
+  "pricing": "Free",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "qna": "marketplace",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -34,27 +40,37 @@
         "category": "Large File Compare"
       },
       {
+        "command": "largeFileCompare.compareSelectedFiles",
+        "title": "Diff Selected (Large File Compare)",
+        "category": "Large File Compare"
+      },
+      {
         "command": "largeFileCompare.selectForCompare",
-        "title": "Select for Compare (Large File)",
+        "title": "Select for Diff (Large File Compare)",
         "category": "Large File Compare"
       },
       {
         "command": "largeFileCompare.compareWithSelected",
-        "title": "Compare with Selected (Large File)",
+        "title": "Diff with Selected (Large File Compare)",
         "category": "Large File Compare"
       }
     ],
     "menus": {
       "explorer/context": [
         {
-          "command": "largeFileCompare.selectForCompare",
-          "when": "!explorerResourceIsFolder",
+          "command": "largeFileCompare.compareSelectedFiles",
+          "when": "listDoubleSelection && !explorerResourceIsFolder",
           "group": "3_compare@1"
         },
         {
-          "command": "largeFileCompare.compareWithSelected",
-          "when": "largeFileCompare.hasSelectedForCompare && !explorerResourceIsFolder",
+          "command": "largeFileCompare.selectForCompare",
+          "when": "!listMultiSelection && !explorerResourceIsFolder",
           "group": "3_compare@2"
+        },
+        {
+          "command": "largeFileCompare.compareWithSelected",
+          "when": "largeFileCompare.hasSelectedForCompare && !listMultiSelection && !explorerResourceIsFolder",
+          "group": "3_compare@3"
         }
       ],
       "editor/title/context": [

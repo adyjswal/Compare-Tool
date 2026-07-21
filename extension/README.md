@@ -8,12 +8,24 @@ The read + diff runs in a worker thread with streamed reading, progress, and a C
 button, and the view is fully virtualized (only the visible rows are in the DOM), so it
 stays smooth at a million lines.
 
+On a 1M-line CSV pair, VS Code's built-in diff took **30–40 s**, lagged, and dropped the
+side-by-side view; this renders side-by-side in **~5 s** and scrolls smoothly. It also does
+two things the built-in can't do at any size: **sort-then-compare** (for unordered exports)
+and **key-column compare** (match rows by an ID field, to reconcile reordered dumps).
+
 ## Getting started
 
-1. Open the Command Palette (`Ctrl+Shift+P`) → **Large File Compare: Compare Two Files**,
-   and pick two text files. Or right-click a file in the Explorer → **Select for Compare
-   (Large File)**, then right-click another → **Compare with Selected (Large File)**.
-2. A side-by-side diff panel opens with a summary of unchanged / changed / removed / added.
+Pick whichever fits:
+
+- **Two selected files** — Ctrl/Cmd-click two files in the Explorer, right-click →
+  **Diff Selected (Large File Compare)**. (First = left, second = right; swap in the panel.)
+- **Two steps** (also works on open editor tabs / unsaved docs) — right-click one →
+  **Select for Diff (Large File Compare)**, then right-click the other →
+  **Diff with Selected (Large File Compare)**.
+- **Command Palette** (`Ctrl+Shift+P`) → **Large File Compare: Compare Two Files**, then pick
+  two files via the dialog.
+
+A side-by-side diff panel opens with a summary of unchanged / changed / removed / added.
 
 ## Features
 
