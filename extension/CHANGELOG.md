@@ -2,6 +2,12 @@
 
 All notable changes to the **Large File Compare** extension are documented here.
 
+## [0.1.2]
+
+- Docs: clearer Marketplace listing — a compare-mode guide (as-is / sort-first / key-column,
+  with an example), a panel orientation, and the ⇄ swap button named.
+- Clarified that comparison is **always case-insensitive** (there is no case-sensitive toggle yet).
+
 ## [0.1.1]
 
 - **Unchanged rows view**: a 3-way control — *All*, *Collapsed* (GitHub-style expandable

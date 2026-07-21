@@ -3,6 +3,12 @@
 Release notes for the **Large File Compare** VS Code extension. The authoritative,
 extension-bundled log is [extension/CHANGELOG.md](extension/CHANGELOG.md).
 
+## [0.1.2]
+
+- Docs: clearer Marketplace listing (compare-mode guide + key-column example, panel
+  orientation, named the ⇄ swap button) and clarified that comparison is always
+  case-insensitive.
+
 ## [0.1.1]
 
 - **Unchanged-rows view** — a 3-way control: *All*, *Collapsed* (GitHub-style expandable
