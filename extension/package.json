@@ -28,7 +28,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/large-file-compare.git"
+    "url": "https://github.com/adyjswal/Compare-Tool.git"
+  },
+  "homepage": "https://github.com/adyjswal/Compare-Tool#readme",
+  "bugs": {
+    "url": "https://github.com/adyjswal/Compare-Tool/issues"
   },
   "main": "./dist/extension.js",
   "activationEvents": [],
