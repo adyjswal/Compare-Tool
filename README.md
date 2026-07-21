@@ -1,5 +1,11 @@
 # Large File Compare
 
+[![VS Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/adityakumar0406.large-file-compare?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=adityakumar0406.large-file-compare)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/adityakumar0406.large-file-compare)](https://marketplace.visualstudio.com/items?itemName=adityakumar0406.large-file-compare)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](extension/LICENSE)
+
+**Install:** [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=adityakumar0406.large-file-compare) — or in VS Code, open Extensions (`Ctrl+Shift+X`) and search **Large File Compare**.
+
 A VS Code extension that **sorts and compares very large text files** (200k–2M lines) —
 SQL exports, structured property/config files, CSV dumps, and the like — where VS Code's
 built-in diff editor struggles. It replaces the "sort in Excel, paste into VS Code,
