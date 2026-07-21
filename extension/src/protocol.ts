@@ -1,9 +1,12 @@
 /**
  * Messages passed between the extension host and the webview.
  *
- * Shared by both sides so the shape can't drift. The diff result crosses in a
- * compact columnar form (three parallel arrays, not a million row objects) so
- * structured-clone stays cheap at 1M rows; the webview rebuilds row objects.
+ * Windowed transport: the host keeps the full result and pushes only the tiny
+ * per-row status bytes (~1 byte/row) to the webview. The (large) line text is
+ * pulled on demand, one visible window at a time, so the total data crossing
+ * the webview channel never approaches its ~512MB serialization ceiling — this
+ * is what lets the tool scale past ~1M rows. Find runs on the host (it holds
+ * all the text) and returns matching row indices.
  */
 import type { DiffSummary } from "@large-file-compare/engine";
 import type { CompareOptions } from "./worker/messages";
@@ -23,23 +26,46 @@ export interface StatusMessage {
   lines?: number;
 }
 
-/** Host → webview: a completed comparison, in columnar form. */
-export interface DiffResultMessage {
-  type: "diffResult";
+/**
+ * Host → webview: a comparison is ready. Carries metadata plus the full per-row
+ * status column (small — ~1 byte/row). Text is fetched later via `getWindow`.
+ */
+export interface ReadyResultMessage {
+  type: "ready-result";
   /**
    * Identifies the pair of files being compared. It stays constant across
    * re-sorts of the same comparison and changes when a fresh comparison opens,
-   * so the webview knows when to reset its toolbar (sort/filter) state.
+   * so the webview knows when to reset its toolbar state.
    */
   comparisonId: number;
   left: FileInfo;
   right: FileInfo;
   summary: DiffSummary;
-  /** Per-row status code; see STATUS_CODES in worker/messages. */
+  /** Per-row status code (length = total rows); see STATUS_CODES. */
   statuses: Uint8Array;
-  /** Per-row text; "" where that side is absent (implied by the status). */
+  /** Longest line length (chars) per side — for sizing horizontal scroll. */
+  leftMaxLen: number;
+  rightMaxLen: number;
+}
+
+/** Host → webview: the line text for a set of requested row indices. */
+export interface WindowMessage {
+  type: "window";
+  comparisonId: number;
+  /** The row indices these texts correspond to (parallel to lefts/rights). */
+  indices: number[];
+  /** Text per index; "" where that side is absent (implied by the status). */
   lefts: string[];
   rights: string[];
+}
+
+/** Host → webview: rows (indices into the full result) that match a Find query. */
+export interface FindResultMessage {
+  type: "find-result";
+  comparisonId: number;
+  /** Echoes the request's token so stale responses can be ignored. */
+  token: number;
+  indices: Int32Array;
 }
 
 /** Host → webview: the comparison failed (unreadable / binary / etc.). */
@@ -80,11 +106,32 @@ export interface OpenSideMessage {
   side: "left" | "right";
 }
 
-export type HostToWebviewMessage = StatusMessage | DiffResultMessage | ErrorMessage;
+/** Webview → host: fetch the line text for these row indices (a visible window). */
+export interface GetWindowMessage {
+  type: "getWindow";
+  indices: number[];
+}
+
+/** Webview → host: find rows whose text matches (host has all the text). */
+export interface FindMessage {
+  type: "find";
+  token: number;
+  query: string;
+  caseSensitive: boolean;
+}
+
+export type HostToWebviewMessage =
+  | StatusMessage
+  | ReadyResultMessage
+  | WindowMessage
+  | FindResultMessage
+  | ErrorMessage;
 export type WebviewToHostMessage =
   | ReadyMessage
   | CompareMessage
   | CancelMessage
   | ReloadMessage
   | SwapMessage
-  | OpenSideMessage;
+  | OpenSideMessage
+  | GetWindowMessage
+  | FindMessage;

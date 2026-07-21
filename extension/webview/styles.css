@@ -463,6 +463,25 @@ body {
   display: none;
 }
 
+/* Scaled-scroll virtualizer (see scrollMapping.ts): `.scroll-spacer` is a tall
+   but browser-safe (capped) element that creates the vertical scroll range;
+   `.sticky-window` is pinned to the top of the pane and holds only the visible
+   rows, positioned absolutely relative to it. Height / min-width are set inline
+   by the component. `top: 0` (no `left`) keeps horizontal scrolling native. */
+.sticky-window {
+  position: sticky;
+  top: 0;
+}
+
+/* The scroll containers are focusable (tabIndex) so arrow/PageUp/Down/Home/End
+   scroll them; don't paint a focus ring on the pane itself, like VS Code. */
+.pane:focus,
+.pane:focus-visible,
+.unified-list:focus,
+.unified-list:focus-visible {
+  outline: none;
+}
+
 /* ---- Rows (shared) ---- */
 .row {
   display: flex;
@@ -522,6 +541,12 @@ body {
 }
 .row:not(.side).row-changed {
   background: rgba(210, 153, 34, 0.15);
+}
+
+/* Placeholder shown while a row's text is being fetched (windowed loading). */
+.cell-loading {
+  opacity: 0.35;
+  user-select: none;
 }
 
 /* ---- Side-by-side cells ---- */

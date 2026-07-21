@@ -100,16 +100,20 @@ function compute(
   compare: CompareOptions,
 ): DiffResult {
   const trim = compare.ignoreWhitespace;
+  // Comparison is case-insensitive: lines differing only in letter case count as
+  // unchanged (upper/lowercase treated as the same when matching).
+  const caseInsensitive = true;
   if (compare.key) {
-    return diffLines(leftLines, rightLines, { key: compare.key, trim });
+    return diffLines(leftLines, rightLines, { key: compare.key, trim, caseInsensitive });
   }
   if (compare.sort) {
     return diffLines(sortLines(leftLines, compare.sort), sortLines(rightLines, compare.sort), {
       mode: "set",
       trim,
+      caseInsensitive,
     });
   }
-  return diffLines(leftLines, rightLines, { pairChanged: compare.pairChanged, trim });
+  return diffLines(leftLines, rightLines, { pairChanged: compare.pairChanged, trim, caseInsensitive });
 }
 
 /** Pack the row objects into parallel columns for a cheap structured clone. */
@@ -118,13 +122,19 @@ function toColumnar(result: DiffResult): ColumnarResult {
   const statuses = new Uint8Array(n);
   const lefts = new Array<string>(n);
   const rights = new Array<string>(n);
+  let leftMaxLen = 0;
+  let rightMaxLen = 0;
   for (let i = 0; i < n; i++) {
     const row = result.rows[i];
     statuses[i] = STATUS_CODES.indexOf(row.status);
-    lefts[i] = row.left ?? "";
-    rights[i] = row.right ?? "";
+    const left = row.left ?? "";
+    const right = row.right ?? "";
+    lefts[i] = left;
+    rights[i] = right;
+    if (left.length > leftMaxLen) leftMaxLen = left.length;
+    if (right.length > rightMaxLen) rightMaxLen = right.length;
   }
-  return { statuses, lefts, rights, summary: result.summary };
+  return { statuses, lefts, rights, summary: result.summary, leftMaxLen, rightMaxLen };
 }
 
 function toMeta(doc: FileDocument): FileMeta {

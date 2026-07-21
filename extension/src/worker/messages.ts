@@ -48,6 +48,10 @@ export interface ColumnarResult {
   lefts: string[];
   rights: string[];
   summary: DiffSummary;
+  /** Longest line length (chars) on each side — the webview sizes horizontal
+   *  scroll from these since it no longer holds all the text. */
+  leftMaxLen: number;
+  rightMaxLen: number;
 }
 
 /** Status ↔ code mapping, shared by worker (encode) and webview (decode). */

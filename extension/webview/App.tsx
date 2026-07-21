@@ -1,28 +1,36 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { DiffResultMessage, FileInfo, StatusMessage } from "../src/protocol";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  FileInfo,
+  FindResultMessage,
+  ReadyResultMessage,
+  StatusMessage,
+  WindowMessage,
+} from "../src/protocol";
 import type { CompareOptions } from "../src/worker/messages";
-import type { DiffRow, DiffStatus, DiffSummary, SortOptions } from "@large-file-compare/engine";
+import type { DiffStatus, DiffSummary, SortOptions } from "@large-file-compare/engine";
 import { getVsCodeApi } from "./vscodeApi";
 import { Header } from "./Header";
 import { Toolbar } from "./Toolbar";
-import type { CompareBy, SortChoice } from "./Toolbar";
+import type { SortChoice } from "./Toolbar";
 import { NavBar } from "./NavBar";
 import { DiffList } from "./DiffList";
-import type { DiffListHandle, LineNo, ViewMode } from "./DiffList";
+import type { DiffListHandle, ViewMode, WindowRow } from "./DiffList";
 
-/** A completed comparison, with row objects rebuilt from the columnar payload. */
-interface Comparison {
+/** Metadata for the comparison on screen (the row text is fetched on demand). */
+interface Meta {
   comparisonId: number;
   left: FileInfo;
   right: FileInfo;
   summary: DiffSummary;
-  rows: DiffRow[];
+  leftMaxLen: number;
+  rightMaxLen: number;
 }
 
 /** What the navigation bar is stepping through. */
 type NavTarget = { kind: "find" } | { kind: "status"; status: DiffStatus };
 
 const STATUS: DiffStatus[] = ["unchanged", "added", "removed", "changed"];
+const EMPTY = new Int32Array(0);
 
 /** Advance a cursor within a list of indices, wrapping at both ends. */
 function nextPos(pos: number, length: number, direction: 1 | -1): number {
@@ -33,31 +41,37 @@ function nextPos(pos: number, length: number, direction: 1 | -1): number {
 }
 
 export function App() {
-  const [data, setData] = useState<Comparison | null>(null);
+  const [meta, setMeta] = useState<Meta | null>(null);
+  const [statuses, setStatuses] = useState<Uint8Array | null>(null);
   const [phase, setPhase] = useState<StatusMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<ViewMode>("sideBySide");
+  // Bumped whenever a text window arrives, to re-render the rows that just
+  // loaded (getRow depends on it so the memoized panes refresh).
+  const [loadTick, setLoadTick] = useState(0);
 
-  // Find (client-side) and sort (host round-trip) state.
+  // Find + sort (host round-trips) state.
   const [query, setQuery] = useState("");
   const [caseSensitiveSearch, setCaseSensitiveSearch] = useState(false);
-  const [onlyMatches, setOnlyMatches] = useState(false);
   const [sort, setSort] = useState<SortChoice>("original");
-  const [ignoreCaseSort, setIgnoreCaseSort] = useState(false);
-
-  // Key-column compare (whole-line by default).
-  const [compareBy, setCompareBy] = useState<CompareBy>("line");
-  const [delimiter, setDelimiter] = useState(",");
-  const [keyColumn, setKeyColumn] = useState(1);
-
-  // Pair a removed+added line into one "changed" row (on) vs keep them separate
-  // git-style (off). Only affects the default whole-line positional compare.
   const [pairChanged, setPairChanged] = useState(true);
-  // Ignore leading/trailing whitespace when comparing (on) vs compare exactly
-  // like git (off). Affects every compare mode.
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(true);
 
   const comparisonId = useRef<number | undefined>(undefined);
+  // On-demand text cache (one slot per row; undefined until fetched).
+  const leftText = useRef<(string | undefined)[]>([]);
+  const rightText = useRef<(string | undefined)[]>([]);
+  const requested = useRef<Set<number>>(new Set());
+
+  const [matchIndices, setMatchIndices] = useState<Int32Array | null>(null);
+  const findToken = useRef(0);
+
+  const [nav, setNav] = useState<NavTarget | null>(null);
+  const [navPos, setNavPos] = useState(-1);
+  const [currentIndex, setCurrentIndex] = useState<number | null>(null);
+  const diffRef = useRef<DiffListHandle>(null);
+
+  const total = statuses?.length ?? 0;
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -65,35 +79,65 @@ export function App() {
       if (message?.type === "status") {
         setError(null);
         setPhase(message as StatusMessage);
-      } else if (message?.type === "error") {
+        return;
+      }
+      if (message?.type === "error") {
         setPhase(null);
         setError((message as { message: string }).message);
-      } else if (message?.type === "diffResult") {
-        const result = message as DiffResultMessage;
-        setPhase(null);
+        return;
+      }
+      if (message?.type === "ready-result") {
+        const m = message as ReadyResultMessage;
         setError(null);
-        if (result.comparisonId !== comparisonId.current) {
-          comparisonId.current = result.comparisonId;
+        setPhase(null);
+        if (m.comparisonId !== comparisonId.current) {
+          comparisonId.current = m.comparisonId;
           setQuery("");
           setCaseSensitiveSearch(false);
-          setOnlyMatches(false);
           setSort("original");
-          setIgnoreCaseSort(false);
-          setCompareBy("line");
-          setDelimiter(",");
-          setKeyColumn(1);
           setPairChanged(true);
           setIgnoreWhitespace(true);
-          setNav(null);
-          setNavPos(-1);
         }
-        setData({
-          comparisonId: result.comparisonId,
-          left: result.left,
-          right: result.right,
-          summary: result.summary,
-          rows: rowsFromColumnar(result.statuses, result.lefts, result.rights),
+        // Rows changed (fresh compare or recompute): drop cached text + nav.
+        leftText.current = new Array(m.statuses.length);
+        rightText.current = new Array(m.statuses.length);
+        requested.current = new Set();
+        setMatchIndices(null);
+        setNav(null);
+        setNavPos(-1);
+        setCurrentIndex(null);
+        setStatuses(m.statuses);
+        setMeta({
+          comparisonId: m.comparisonId,
+          left: m.left,
+          right: m.right,
+          summary: m.summary,
+          leftMaxLen: m.leftMaxLen,
+          rightMaxLen: m.rightMaxLen,
         });
+        setLoadTick((t) => t + 1);
+        return;
+      }
+      if (message?.type === "window") {
+        const m = message as WindowMessage;
+        if (m.comparisonId !== comparisonId.current) {
+          return;
+        }
+        for (let i = 0; i < m.indices.length; i++) {
+          const idx = m.indices[i];
+          leftText.current[idx] = m.lefts[i];
+          rightText.current[idx] = m.rights[i];
+        }
+        setLoadTick((t) => t + 1);
+        return;
+      }
+      if (message?.type === "find-result") {
+        const m = message as FindResultMessage;
+        if (m.comparisonId !== comparisonId.current || m.token !== findToken.current) {
+          return;
+        }
+        setMatchIndices(m.indices);
+        return;
       }
     };
     window.addEventListener("message", onMessage);
@@ -101,58 +145,45 @@ export function App() {
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
-  const lineNos = useMemo<LineNo[]>(() => {
-    const rows = data?.rows ?? [];
-    let left = 0;
-    let right = 0;
-    return rows.map((row) => ({
-      left: row.left !== undefined ? ++left : null,
-      right: row.right !== undefined ? ++right : null,
-    }));
-  }, [data]);
+  // Find runs on the host (it holds all the text). Debounced; re-run when the
+  // query, case option, or the underlying rows (recompute) change.
+  useEffect(() => {
+    if (!statuses || query === "") {
+      setMatchIndices(null);
+      return;
+    }
+    const token = ++findToken.current;
+    const timer = setTimeout(() => {
+      getVsCodeApi().postMessage({ type: "find", token, query, caseSensitive: caseSensitiveSearch });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [query, caseSensitiveSearch, statuses]);
 
-  const visible = useMemo(() => {
-    const rows = data?.rows ?? [];
-    if (!onlyMatches || query === "") {
-      return { rows, lineNos };
+  // Per-row line numbers, derived once from the status column (prefix sums).
+  const { leftNo, rightNo } = useMemo(() => {
+    const n = statuses?.length ?? 0;
+    const l = new Int32Array(n);
+    const r = new Int32Array(n);
+    let lc = 0;
+    let rc = 0;
+    for (let i = 0; i < n; i++) {
+      const s = statuses![i]; // 0 unchanged, 1 added, 2 removed, 3 changed
+      l[i] = s === 0 || s === 2 || s === 3 ? ++lc : 0;
+      r[i] = s === 0 || s === 1 || s === 3 ? ++rc : 0;
     }
-    const needle = caseSensitiveSearch ? query : query.toLowerCase();
-    const outRows: DiffRow[] = [];
-    const outNos: LineNo[] = [];
-    for (let i = 0; i < rows.length; i++) {
-      if (rowMatches(rows[i].left, rows[i].right, needle, caseSensitiveSearch)) {
-        outRows.push(rows[i]);
-        outNos.push(lineNos[i]);
-      }
-    }
-    return { rows: outRows, lineNos: outNos };
-  }, [data, lineNos, query, caseSensitiveSearch, onlyMatches]);
+    return { leftNo: l, rightNo: r };
+  }, [statuses]);
 
-  const matchIndices = useMemo(() => {
-    const rows = visible.rows;
-    if (query === "") {
-      return [];
-    }
-    const needle = caseSensitiveSearch ? query : query.toLowerCase();
-    const out: number[] = [];
-    for (let i = 0; i < rows.length; i++) {
-      if (rowMatches(rows[i].left, rows[i].right, needle, caseSensitiveSearch)) {
-        out.push(i);
-      }
-    }
-    return out;
-  }, [visible.rows, query, caseSensitiveSearch]);
-
+  // Row indices grouped by status, for chip navigation.
   const occurrences = useMemo(() => {
-    const map: Record<DiffStatus, number[]> = {
-      unchanged: [],
-      added: [],
-      removed: [],
-      changed: [],
-    };
-    visible.rows.forEach((row, index) => map[row.status].push(index));
+    const map: Record<DiffStatus, number[]> = { unchanged: [], added: [], removed: [], changed: [] };
+    if (statuses) {
+      for (let i = 0; i < statuses.length; i++) {
+        map[STATUS[statuses[i]]].push(i);
+      }
+    }
     return map;
-  }, [visible.rows]);
+  }, [statuses]);
 
   const navCounts = useMemo<Record<DiffStatus, number>>(
     () => ({
@@ -164,27 +195,61 @@ export function App() {
     [occurrences],
   );
 
-  // ---- Unified navigation (chips + Find share one bar) ----
-  const diffRef = useRef<DiffListHandle>(null);
-  const [currentIndex, setCurrentIndex] = useState<number | null>(null);
-  const [nav, setNav] = useState<NavTarget | null>(null);
-  const [navPos, setNavPos] = useState(-1);
+  // A row for the list: status + line numbers from local metadata, text from the
+  // on-demand cache (loaded=false until its window arrives).
+  const getRow = useCallback(
+    (index: number): WindowRow => {
+      const s = statuses ? statuses[index] : 0;
+      const lt = leftText.current[index];
+      return {
+        status: STATUS[s],
+        left: lt ?? "",
+        right: rightText.current[index] ?? "",
+        leftNo: leftNo[index] || null,
+        rightNo: rightNo[index] || null,
+        loaded: lt !== undefined,
+      };
+      // loadTick in deps: identity changes when the cache fills, so the
+      // memoized panes re-render the rows that just loaded.
+    },
+    [statuses, leftNo, rightNo, loadTick],
+  );
 
-  const jumpTo = (rowIndex: number) => {
-    setCurrentIndex(rowIndex);
-    diffRef.current?.scrollToRow(rowIndex);
+  // Ask the host for the text of any visible rows we don't have yet.
+  const onVisibleRange = useCallback(
+    (start: number, stop: number) => {
+      const need: number[] = [];
+      for (let i = Math.max(0, start); i <= stop && i < total; i++) {
+        if (leftText.current[i] === undefined && !requested.current.has(i)) {
+          requested.current.add(i);
+          need.push(i);
+        }
+      }
+      if (need.length > 0) {
+        getVsCodeApi().postMessage({ type: "getWindow", indices: need });
+      }
+    },
+    [total],
+  );
+
+  const jumpTo = (index: number) => {
+    setCurrentIndex(index);
+    diffRef.current?.scrollToRow(index);
   };
 
-  const navIndices = nav ? (nav.kind === "find" ? matchIndices : occurrences[nav.status]) : [];
+  const matches: Int32Array | number[] = matchIndices ?? EMPTY;
+  const navIndices: Int32Array | number[] = nav
+    ? nav.kind === "find"
+      ? matches
+      : occurrences[nav.status]
+    : EMPTY;
 
-  // The navigable set changed (filter / sort / new comparison): forget position
-  // and drop the current-row marker.
+  // The navigable set changed (recompute / new find): forget position + marker.
   useEffect(() => {
     setNavPos(-1);
     setCurrentIndex(null);
   }, [occurrences, matchIndices]);
 
-  // Typing in Find makes it the navigation target; clearing it releases the bar.
   useEffect(() => {
     if (query !== "") {
       setNav({ kind: "find" });
@@ -204,9 +269,8 @@ export function App() {
     jumpTo(navIndices[pos]);
   };
 
-  // Enter / Shift+Enter in the Find box always steps through matches.
   const findStep = (direction: 1 | -1) => {
-    const len = matchIndices.length;
+    const len = matches.length;
     if (len === 0) {
       return;
     }
@@ -214,7 +278,7 @@ export function App() {
     const pos = nextPos(base, len, direction);
     setNav({ kind: "find" });
     setNavPos(pos);
-    jumpTo(matchIndices[pos]);
+    jumpTo(matches[pos]);
   };
 
   const handleChip = (status: DiffStatus) => {
@@ -227,14 +291,12 @@ export function App() {
     jumpTo(indices[0]);
   };
 
-  // Dismiss the nav bar: back to normal, clearing the current-row marker.
   const dismissNav = () => {
     setNav(null);
     setNavPos(-1);
     setCurrentIndex(null);
   };
 
-  // Escape closes the nav bar (like a find widget) while it's open.
   useEffect(() => {
     if (!nav) {
       return;
@@ -248,39 +310,23 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [nav]);
 
-  // ---- Ask the host (worker) to re-compare with new sort / key options ----
+  // ---- Ask the host to re-compare with new sort / key options ----
   const requestCompare = (next: {
     sort: SortChoice;
-    ignoreCase: boolean;
-    by: CompareBy;
-    delim: string;
-    col: number;
     pair: boolean;
     ws: boolean;
   }) => {
-    const options: CompareOptions =
-      next.by === "column"
-        ? {
-            sort: null,
-            key: { delimiter: next.delim, index: next.col },
-            pairChanged: next.pair,
-            ignoreWhitespace: next.ws,
-          }
-        : {
-            sort: toSortOptions(next.sort, next.ignoreCase),
-            key: null,
-            pairChanged: next.pair,
-            ignoreWhitespace: next.ws,
-          };
+    const options: CompareOptions = {
+      sort: toSortOptions(next.sort),
+      key: null,
+      pairChanged: next.pair,
+      ignoreWhitespace: next.ws,
+    };
     getVsCodeApi().postMessage({ type: "compare", options });
   };
 
   const current = {
     sort,
-    ignoreCase: ignoreCaseSort,
-    by: compareBy,
-    delim: delimiter,
-    col: keyColumn,
     pair: pairChanged,
     ws: ignoreWhitespace,
   };
@@ -288,26 +334,6 @@ export function App() {
   const onSortChange = (nextSort: SortChoice) => {
     setSort(nextSort);
     requestCompare({ ...current, sort: nextSort });
-  };
-  const onIgnoreCaseSortChange = (value: boolean) => {
-    setIgnoreCaseSort(value);
-    requestCompare({ ...current, ignoreCase: value });
-  };
-  const onCompareByChange = (value: CompareBy) => {
-    setCompareBy(value);
-    requestCompare({ ...current, by: value });
-  };
-  const onDelimiterChange = (value: string) => {
-    setDelimiter(value);
-    if (compareBy === "column") {
-      requestCompare({ ...current, delim: value });
-    }
-  };
-  const onKeyColumnChange = (value: number) => {
-    setKeyColumn(value);
-    if (compareBy === "column") {
-      requestCompare({ ...current, col: value });
-    }
   };
   const onPairChangedChange = (value: boolean) => {
     setPairChanged(value);
@@ -321,18 +347,18 @@ export function App() {
   if (error) {
     return <div className="placeholder error-view">{error}</div>;
   }
-  if (!data) {
+  if (!meta || !statuses) {
     return <LoadingView phase={phase} />;
   }
 
-  const banner = statusBanner(data);
+  const banner = statusBanner(meta);
   const navLabel = nav ? (nav.kind === "find" ? "matches" : nav.status) : "";
   const navTone = nav ? (nav.kind === "find" ? "find" : nav.status) : "find";
 
   return (
     <div className="app">
       <Header
-        data={data}
+        data={meta}
         mode={mode}
         onModeChange={setMode}
         onNavigate={handleChip}
@@ -346,23 +372,13 @@ export function App() {
         onQueryChange={setQuery}
         caseSensitiveSearch={caseSensitiveSearch}
         onCaseSensitiveSearchChange={setCaseSensitiveSearch}
-        onlyMatches={onlyMatches}
-        onOnlyMatchesChange={setOnlyMatches}
         onFindNav={findStep}
-        compareBy={compareBy}
-        onCompareByChange={onCompareByChange}
-        delimiter={delimiter}
-        onDelimiterChange={onDelimiterChange}
-        keyColumn={keyColumn}
-        onKeyColumnChange={onKeyColumnChange}
         pairChanged={pairChanged}
         onPairChangedChange={onPairChangedChange}
         ignoreWhitespace={ignoreWhitespace}
         onIgnoreWhitespaceChange={onIgnoreWhitespaceChange}
         sort={sort}
         onSortChange={onSortChange}
-        ignoreCaseSort={ignoreCaseSort}
-        onIgnoreCaseSortChange={onIgnoreCaseSortChange}
       />
       {nav && (
         <NavBar
@@ -378,11 +394,15 @@ export function App() {
       {banner && <div className={`banner banner-${banner.tone}`}>{banner.text}</div>}
       <DiffList
         ref={diffRef}
-        rows={visible.rows}
-        lineNos={visible.lineNos}
+        total={total}
+        statuses={statuses}
+        getRow={getRow}
+        onVisibleRange={onVisibleRange}
+        leftMaxLen={meta.leftMaxLen}
+        rightMaxLen={meta.rightMaxLen}
         mode={mode}
-        leftName={data.left.name}
-        rightName={data.right.name}
+        leftName={meta.left.name}
+        rightName={meta.right.name}
         currentIndex={currentIndex}
         query={query}
         caseSensitive={caseSensitiveSearch}
@@ -413,29 +433,12 @@ function LoadingView({ phase }: { phase: StatusMessage | null }) {
   );
 }
 
-/** Rebuild row objects from the columnar payload (absence implied by status). */
-function rowsFromColumnar(statuses: Uint8Array, lefts: string[], rights: string[]): DiffRow[] {
-  const n = statuses.length;
-  const rows = new Array<DiffRow>(n);
-  for (let i = 0; i < n; i++) {
-    const status = STATUS[statuses[i]];
-    if (status === "added") {
-      rows[i] = { status, right: rights[i] };
-    } else if (status === "removed") {
-      rows[i] = { status, left: lefts[i] };
-    } else {
-      rows[i] = { status, left: lefts[i], right: rights[i] };
-    }
-  }
-  return rows;
-}
-
 /** A friendly banner for the notable "nothing to look at" cases, or null. */
-function statusBanner(data: Comparison): { tone: "info" | "ok"; text: string } | null {
-  if (data.left.empty && data.right.empty) {
+function statusBanner(meta: Meta): { tone: "info" | "ok"; text: string } | null {
+  if (meta.left.empty && meta.right.empty) {
     return { tone: "info", text: "Both files are empty — nothing to compare." };
   }
-  const { summary } = data;
+  const { summary } = meta;
   const differences = summary.added + summary.removed + summary.changed;
   if (summary.total > 0 && differences === 0) {
     return {
@@ -446,30 +449,15 @@ function statusBanner(data: Comparison): { tone: "info" | "ok"; text: string } |
   return null;
 }
 
-/** Does either side of a row contain the needle? Mirrors the engine's filter. */
-function rowMatches(
-  left: string | undefined,
-  right: string | undefined,
-  needle: string,
-  caseSensitive: boolean,
-): boolean {
-  const l = left ?? "";
-  const r = right ?? "";
-  if (caseSensitive) {
-    return l.includes(needle) || r.includes(needle);
-  }
-  return l.toLowerCase().includes(needle) || r.toLowerCase().includes(needle);
-}
-
 /** Map a toolbar choice to engine sort options (null = original order). */
-function toSortOptions(sort: SortChoice, ignoreCase: boolean): SortOptions | null {
+function toSortOptions(sort: SortChoice): SortOptions | null {
   switch (sort) {
     case "original":
       return null;
     case "alpha-asc":
-      return { mode: "alphabetical", direction: "asc", caseInsensitive: ignoreCase, trim: true };
+      return { mode: "alphabetical", direction: "asc", caseInsensitive: true, trim: true };
     case "alpha-desc":
-      return { mode: "alphabetical", direction: "desc", caseInsensitive: ignoreCase, trim: true };
+      return { mode: "alphabetical", direction: "desc", caseInsensitive: true, trim: true };
     case "num-asc":
       return { mode: "numeric", direction: "asc", caseInsensitive: false, trim: true };
     case "num-desc":
