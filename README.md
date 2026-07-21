@@ -114,8 +114,8 @@ Per-package watch modes are also available:
 
 ## Notes
 
-- `publisher` in `extension/package.json` is a placeholder (`your-publisher-id`). A local
-  `.vsix` installs fine with it; set a real publisher id before publishing to the Marketplace.
+- `publisher` in `extension/package.json` is `AdityaKumar0406` (the Marketplace publisher).
+  Publishing needs a PAT with the *Marketplace: Manage* scope (see below).
 - Package to a `.vsix`: `npm run vsix` from the `extension/` folder (builds production bundles,
   then runs `vsce package --no-dependencies` since deps are bundled by esbuild). Install it with
   `code --install-extension extension/large-file-compare-0.1.0.vsix` or the Extensions view's

@@ -3,7 +3,7 @@
   "displayName": "Large File Compare",
   "description": "Sort and compare very large text files (200k-2M lines) such as SQL exports, CSV dumps, and structured config/property files.",
   "version": "0.1.1",
-  "publisher": "your-publisher-id",
+  "publisher": "AdityaKumar0406",
   "license": "MIT",
   "icon": "media/icon.png",
   "pricing": "Free",

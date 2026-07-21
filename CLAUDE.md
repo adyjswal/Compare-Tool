@@ -116,8 +116,7 @@ Precedence is **key > sorted(set) > positional**:
 
 Because esbuild bundles React and the engine into `dist/`, **all runtime deps live in
 `devDependencies`** and `vsce` is invoked with `--no-dependencies`. `.vscodeignore` ships only
-`dist/` + manifest + docs + `media/icon.png`. The `publisher` in `extension/package.json` is a
-placeholder until a real Marketplace publisher id is set.
+`dist/` + manifest + docs + `media/icon.png`. The Marketplace `publisher` is `AdityaKumar0406`.
 
 ## Git
 
