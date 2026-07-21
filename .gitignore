@@ -11,8 +11,10 @@ out/
 # Test / coverage
 coverage/
 
-# Generated benchmark data (large; regenerate with bench/large-diff-bench.js)
-bench/data/
+# Local-only dev artifacts (not published to the repo)
+CLAUDE.md
+bench/
+samples/
 
 # Logs & OS cruft
 *.log
