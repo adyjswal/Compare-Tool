@@ -1,6 +1,5 @@
 import type { FileInfo } from "../src/protocol";
 import type { DiffStatus, DiffSummary } from "@large-file-compare/engine";
-import type { ViewMode } from "./DiffList";
 
 /** Just the parts of a comparison the header renders. */
 interface HeaderData {
@@ -11,8 +10,6 @@ interface HeaderData {
 
 interface HeaderProps {
   data: HeaderData;
-  mode: ViewMode;
-  onModeChange: (mode: ViewMode) => void;
   /** Start navigating rows of this status (jumps to the first, opens the nav bar). */
   onNavigate: (status: DiffStatus) => void;
   /** How many rows of each status are currently visible (for enabling chips). */
@@ -25,11 +22,9 @@ interface HeaderProps {
   onOpenSide: (side: "left" | "right") => void;
 }
 
-/** Top bar: file names, per-category counts, and the layout toggle. */
+/** Top bar: file names and per-category counts. */
 export function Header({
   data,
-  mode,
-  onModeChange,
   onNavigate,
   navCounts,
   onReload,
@@ -82,23 +77,6 @@ export function Header({
           <Chip status="changed" value={summary.changed} navCount={navCounts.changed} onNavigate={onNavigate} />
           <Chip status="removed" value={summary.removed} navCount={navCounts.removed} onNavigate={onNavigate} />
           <Chip status="added" value={summary.added} navCount={navCounts.added} onNavigate={onNavigate} />
-        </div>
-
-        <div className="view-toggle" role="group" aria-label="Layout">
-          <button
-            type="button"
-            className={mode === "sideBySide" ? "active" : ""}
-            onClick={() => onModeChange("sideBySide")}
-          >
-            Side-by-side
-          </button>
-          <button
-            type="button"
-            className={mode === "unified" ? "active" : ""}
-            onClick={() => onModeChange("unified")}
-          >
-            Unified
-          </button>
         </div>
       </div>
     </header>

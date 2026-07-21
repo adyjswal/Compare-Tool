@@ -25,9 +25,6 @@ import {
   scrollTopToFirstRow,
 } from "./scrollMapping";
 
-/** Which layout the diff is shown in. */
-export type ViewMode = "sideBySide" | "unified";
-
 /** Imperative API: scroll a given row into view (used by chip navigation). */
 export interface DiffListHandle {
   scrollToRow(index: number): void;
@@ -52,13 +49,6 @@ const ROW_HEIGHT = 20;
 
 /** Rows rendered above/below the viewport (matches the old react-window value). */
 const OVERSCAN = 20;
-
-const MARKERS: Record<DiffStatus, string> = {
-  added: "+",
-  removed: "-",
-  changed: "~",
-  unchanged: " ",
-};
 
 /* ------------------------------------------------------------------ *
  * Browser max element height probe (for scaled scrolling)
@@ -378,7 +368,6 @@ interface DiffListProps {
   onVisibleRange: (start: number, stop: number) => void;
   leftMaxLen: number;
   rightMaxLen: number;
-  mode: ViewMode;
   leftName: string;
   rightName: string;
   currentIndex: number | null;
@@ -387,31 +376,26 @@ interface DiffListProps {
 }
 
 /**
- * Virtualized, windowed diff view. Only visible rows are in the DOM, and only
- * their *text* is fetched from the host on demand — so the tool scales to
- * millions of rows without shipping all the text to the webview. Scaled
- * scrolling (see scrollMapping.ts) keeps every row reachable even past the
- * browser's element-height limit. Side-by-side renders two scroll-synced panes;
- * long lines scroll horizontally with pinned line-number gutters.
+ * Virtualized, windowed side-by-side diff view. Only visible rows are in the
+ * DOM, and only their *text* is fetched from the host on demand — so the tool
+ * scales to millions of rows without shipping all the text to the webview.
+ * Scaled scrolling (see scrollMapping.ts) keeps every row reachable even past
+ * the browser's element-height limit. Two scroll-synced panes; long lines
+ * scroll horizontally with pinned line-number gutters.
  */
 export const DiffList = forwardRef<DiffListHandle, DiffListProps>(function DiffList(
-  { total, statuses, getRow, onVisibleRange, leftMaxLen, rightMaxLen, mode, leftName, rightName, currentIndex, query, caseSensitive },
+  { total, statuses, getRow, onVisibleRange, leftMaxLen, rightMaxLen, leftName, rightName, currentIndex, query, caseSensitive },
   ref,
 ) {
   const height = useAvailableHeight();
   const safeCap = useSafeCap();
   const leftPaneRef = useRef<ScaledHandle>(null);
-  const unifiedPaneRef = useRef<ScaledHandle>(null);
   // First visible row of the driving pane — feeds the overview ruler.
   const [firstRow, setFirstRow] = useState(0);
 
-  const scrollToRow = useCallback(
-    (index: number) => {
-      const pane = mode === "unified" ? unifiedPaneRef.current : leftPaneRef.current;
-      pane?.scrollToRow(index);
-    },
-    [mode],
-  );
+  const scrollToRow = useCallback((index: number) => {
+    leftPaneRef.current?.scrollToRow(index);
+  }, []);
 
   useImperativeHandle(ref, () => ({ scrollToRow }), [scrollToRow]);
 
@@ -421,52 +405,34 @@ export const DiffList = forwardRef<DiffListHandle, DiffListProps>(function DiffL
 
   return (
     <div className="diff-area">
-      {mode === "sideBySide" && (
-        <div className="sxs-headers">
-          <span className="pane-title" title={leftName}>
-            {leftName}
-          </span>
-          <span className="pane-title" title={rightName}>
-            {rightName}
-          </span>
-        </div>
-      )}
+      <div className="sxs-headers">
+        <span className="pane-title" title={leftName}>
+          {leftName}
+        </span>
+        <span className="pane-title" title={rightName}>
+          {rightName}
+        </span>
+      </div>
 
       <div className="diff-body" ref={height.ref}>
         <div className="diff-content">
           {total === 0 ? (
             <div className="empty-rows">No rows to display.</div>
           ) : height.value > 0 ? (
-            mode === "sideBySide" ? (
-              <SideBySide
-                total={total}
-                getRow={getRow}
-                viewportHeight={height.value}
-                safeCap={safeCap}
-                leftMinWidth={contentWidth(leftMaxLen, 6)}
-                rightMinWidth={contentWidth(rightMaxLen, 6)}
-                currentIndex={currentIndex}
-                query={query}
-                caseSensitive={caseSensitive}
-                leftPaneRef={leftPaneRef}
-                onFirstRowChange={setFirstRow}
-                onVisibleRange={onVisibleRange}
-              />
-            ) : (
-              <Unified
-                total={total}
-                getRow={getRow}
-                viewportHeight={height.value}
-                safeCap={safeCap}
-                minWidth={contentWidth(Math.max(leftMaxLen, rightMaxLen), 12)}
-                currentIndex={currentIndex}
-                query={query}
-                caseSensitive={caseSensitive}
-                paneRef={unifiedPaneRef}
-                onFirstRowChange={setFirstRow}
-                onVisibleRange={onVisibleRange}
-              />
-            )
+            <SideBySide
+              total={total}
+              getRow={getRow}
+              viewportHeight={height.value}
+              safeCap={safeCap}
+              leftMinWidth={contentWidth(leftMaxLen, 6)}
+              rightMinWidth={contentWidth(rightMaxLen, 6)}
+              currentIndex={currentIndex}
+              query={query}
+              caseSensitive={caseSensitive}
+              leftPaneRef={leftPaneRef}
+              onFirstRowChange={setFirstRow}
+              onVisibleRange={onVisibleRange}
+            />
           ) : null}
         </div>
         {total > 0 && height.value > 0 && (
@@ -645,80 +611,6 @@ function Pane({
     />
   );
 }
-
-/* ------------------------------------------------------------------ *
- * Unified: single pane
- * ------------------------------------------------------------------ */
-
-const Unified = memo(function Unified({
-  total,
-  getRow,
-  viewportHeight,
-  safeCap,
-  minWidth,
-  currentIndex,
-  query,
-  caseSensitive,
-  paneRef,
-  onFirstRowChange,
-  onVisibleRange,
-}: {
-  total: number;
-  getRow: (index: number) => WindowRow;
-  viewportHeight: number;
-  safeCap: number;
-  minWidth: string;
-  currentIndex: number | null;
-  query: string;
-  caseSensitive: boolean;
-  paneRef: RefObject<ScaledHandle>;
-  onFirstRowChange: (firstRow: number) => void;
-  onVisibleRange: (start: number, stop: number) => void;
-}) {
-  const outer = useRef<HTMLDivElement | null>(null);
-  const renderRow = useCallback(
-    (index: number, style: CSSProperties): ReactNode => {
-      const row = getRow(index);
-      const text = row.status === "added" || row.status === "changed" ? row.right : row.left;
-      const title = row.loaded
-        ? row.status === "changed"
-          ? `${row.right}\n(was: ${row.left})`
-          : text
-        : undefined;
-      const current = index === currentIndex ? " row-current" : "";
-      return (
-        <div key={index} className={`row row-${row.status}${current}`} style={style} title={title}>
-          <span className="lineno lineno-old">{row.leftNo ?? ""}</span>
-          <span className="lineno lineno-new">{row.rightNo ?? ""}</span>
-          <span className="marker">{MARKERS[row.status]}</span>
-          <span className="text">
-            {row.loaded ? (
-              renderUnifiedText(row, text, query, caseSensitive)
-            ) : (
-              <span className="cell-loading">⋯</span>
-            )}
-          </span>
-        </div>
-      );
-    },
-    [getRow, currentIndex, query, caseSensitive],
-  );
-
-  return (
-    <ScaledVirtualizer
-      ref={paneRef}
-      className="unified-list"
-      total={total}
-      viewportHeight={viewportHeight}
-      safeCap={safeCap}
-      minWidth={minWidth}
-      renderRow={renderRow}
-      outerRef={outer}
-      onFirstRowChange={onFirstRowChange}
-      onVisibleRange={onVisibleRange}
-    />
-  );
-});
 
 /* ------------------------------------------------------------------ *
  * Overview ruler (change map)
@@ -905,16 +797,6 @@ function renderSide(row: WindowRow, side: "left" | "right", query: string, caseS
     const inline = computeInline(row.left, row.right);
     if (inline) {
       return renderChanged(text, side === "left" ? inline.left : inline.right, side === "left" ? "word-del" : "word-add", query, caseSensitive);
-    }
-  }
-  return highlight(text, query, caseSensitive);
-}
-
-function renderUnifiedText(row: WindowRow, text: string, query: string, caseSensitive: boolean): ReactNode {
-  if (row.status === "changed") {
-    const inline = computeInline(row.left, row.right);
-    if (inline) {
-      return renderChanged(row.right, inline.right, "word-add", query, caseSensitive);
     }
   }
   return highlight(text, query, caseSensitive);

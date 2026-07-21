@@ -14,7 +14,7 @@ import { Toolbar } from "./Toolbar";
 import type { SortChoice } from "./Toolbar";
 import { NavBar } from "./NavBar";
 import { DiffList } from "./DiffList";
-import type { DiffListHandle, ViewMode, WindowRow } from "./DiffList";
+import type { DiffListHandle, WindowRow } from "./DiffList";
 
 /** Metadata for the comparison on screen (the row text is fetched on demand). */
 interface Meta {
@@ -45,7 +45,6 @@ export function App() {
   const [statuses, setStatuses] = useState<Uint8Array | null>(null);
   const [phase, setPhase] = useState<StatusMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<ViewMode>("sideBySide");
   // Bumped whenever a text window arrives, to re-render the rows that just
   // loaded (getRow depends on it so the memoized panes refresh).
   const [loadTick, setLoadTick] = useState(0);
@@ -359,8 +358,6 @@ export function App() {
     <div className="app">
       <Header
         data={meta}
-        mode={mode}
-        onModeChange={setMode}
         onNavigate={handleChip}
         navCounts={navCounts}
         onReload={() => getVsCodeApi().postMessage({ type: "reload" })}
@@ -400,7 +397,6 @@ export function App() {
         onVisibleRange={onVisibleRange}
         leftMaxLen={meta.leftMaxLen}
         rightMaxLen={meta.rightMaxLen}
-        mode={mode}
         leftName={meta.left.name}
         rightName={meta.right.name}
         currentIndex={currentIndex}
