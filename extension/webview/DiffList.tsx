@@ -24,6 +24,8 @@ import {
   firstRowToScrollTop,
   scrollTopToFirstRow,
 } from "./scrollMapping";
+import type { Fold } from "./rowModel";
+import { copyToClipboard } from "./clipboard";
 
 /** Imperative API: scroll a given row into view (used by chip navigation). */
 export interface DiffListHandle {
@@ -42,12 +44,16 @@ export interface WindowRow {
   leftNo: number | null;
   rightNo: number | null;
   loaded: boolean;
+  /** Absolute row index (into the status column); -1 for a fold marker. */
+  abs: number;
+  /** When set, this display slot is a collapsed-run marker, not a real row. */
+  fold?: Fold;
 }
 
 /** Fixed row height (px) — must match `.row` line-height in styles.css. */
 const ROW_HEIGHT = 20;
 
-/** Rows rendered above/below the viewport (matches the old react-window value). */
+/** Extra rows rendered above/below the viewport, to cushion fast scrolling. */
 const OVERSCAN = 20;
 
 /* ------------------------------------------------------------------ *
@@ -366,10 +372,15 @@ interface DiffListProps {
   getRow: (index: number) => WindowRow;
   /** Called with the visible (+overscan) range so its text can be fetched. */
   onVisibleRange: (start: number, stop: number) => void;
+  /** Expand a collapsed run (by its run-start index) when its fold is clicked. */
+  onExpandFold: (runStart: number) => void;
+  /** Select a row (by absolute index) — clicking marks "you are here". */
+  onSelectRow: (abs: number) => void;
   leftMaxLen: number;
   rightMaxLen: number;
   leftName: string;
   rightName: string;
+  /** Display index of the selected/parked row, or null. */
   currentIndex: number | null;
   query: string;
   caseSensitive: boolean;
@@ -384,7 +395,7 @@ interface DiffListProps {
  * scroll horizontally with pinned line-number gutters.
  */
 export const DiffList = forwardRef<DiffListHandle, DiffListProps>(function DiffList(
-  { total, statuses, getRow, onVisibleRange, leftMaxLen, rightMaxLen, leftName, rightName, currentIndex, query, caseSensitive },
+  { total, statuses, getRow, onVisibleRange, onExpandFold, onSelectRow, leftMaxLen, rightMaxLen, leftName, rightName, currentIndex, query, caseSensitive },
   ref,
 ) {
   const height = useAvailableHeight();
@@ -392,12 +403,43 @@ export const DiffList = forwardRef<DiffListHandle, DiffListProps>(function DiffL
   const leftPaneRef = useRef<ScaledHandle>(null);
   // First visible row of the driving pane — feeds the overview ruler.
   const [firstRow, setFirstRow] = useState(0);
+  // Right-click "copy" menu: which display row, and where to place the menu.
+  const [menu, setMenu] = useState<{ x: number; y: number; row: WindowRow } | null>(null);
 
   const scrollToRow = useCallback((index: number) => {
     leftPaneRef.current?.scrollToRow(index);
   }, []);
 
   useImperativeHandle(ref, () => ({ scrollToRow }), [scrollToRow]);
+
+  const openMenu = useCallback((x: number, y: number, row: WindowRow) => {
+    setMenu({ x, y, row });
+  }, []);
+
+  // Ctrl/Cmd+C copies the selected row (both sides) — unless the user has an
+  // actual text selection, in which case the browser's native copy wins.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.key === "c" && (e.ctrlKey || e.metaKey))) {
+        return;
+      }
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString() !== "") {
+        return; // let native selection copy happen
+      }
+      if (currentIndex === null) {
+        return;
+      }
+      const row = getRow(currentIndex);
+      if (row.fold) {
+        return;
+      }
+      e.preventDefault();
+      void copyToClipboard(`${row.left}\t${row.right}`);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [currentIndex, getRow]);
 
   // Synthetic scrollTop so the ruler's existing firstRow = scrollTop/rowHeight
   // math keeps working unchanged.
@@ -432,8 +474,12 @@ export const DiffList = forwardRef<DiffListHandle, DiffListProps>(function DiffL
               leftPaneRef={leftPaneRef}
               onFirstRowChange={setFirstRow}
               onVisibleRange={onVisibleRange}
+              onExpandFold={onExpandFold}
+              onSelectRow={onSelectRow}
+              onContextMenu={openMenu}
             />
           ) : null}
+          {menu && <CopyMenu x={menu.x} y={menu.y} row={menu.row} onClose={() => setMenu(null)} />}
         </div>
         {total > 0 && height.value > 0 && (
           <OverviewRuler
@@ -467,6 +513,9 @@ const SideBySide = memo(function SideBySide({
   leftPaneRef,
   onFirstRowChange,
   onVisibleRange,
+  onExpandFold,
+  onSelectRow,
+  onContextMenu,
 }: {
   total: number;
   getRow: (index: number) => WindowRow;
@@ -480,6 +529,9 @@ const SideBySide = memo(function SideBySide({
   leftPaneRef: RefObject<ScaledHandle>;
   onFirstRowChange: (firstRow: number) => void;
   onVisibleRange: (start: number, stop: number) => void;
+  onExpandFold: (runStart: number) => void;
+  onSelectRow: (abs: number) => void;
+  onContextMenu: (x: number, y: number, row: WindowRow) => void;
 }) {
   const leftOuter = useRef<HTMLDivElement | null>(null);
   const rightOuter = useRef<HTMLDivElement | null>(null);
@@ -532,6 +584,9 @@ const SideBySide = memo(function SideBySide({
         handleRef={leftPaneRef}
         onFirstRowChange={onFirstRowChange}
         onVisibleRange={onVisibleRange}
+        onExpandFold={onExpandFold}
+        onSelectRow={onSelectRow}
+        onContextMenu={onContextMenu}
       />
       <Pane
         side="right"
@@ -544,6 +599,9 @@ const SideBySide = memo(function SideBySide({
         query={query}
         caseSensitive={caseSensitive}
         outerRef={rightOuter}
+        onExpandFold={onExpandFold}
+        onSelectRow={onSelectRow}
+        onContextMenu={onContextMenu}
       />
     </div>
   );
@@ -563,6 +621,9 @@ function Pane({
   handleRef,
   onFirstRowChange,
   onVisibleRange,
+  onExpandFold,
+  onSelectRow,
+  onContextMenu,
 }: {
   side: "left" | "right";
   total: number;
@@ -577,15 +638,45 @@ function Pane({
   handleRef?: RefObject<ScaledHandle>;
   onFirstRowChange?: (firstRow: number) => void;
   onVisibleRange?: (start: number, stop: number) => void;
+  onExpandFold: (runStart: number) => void;
+  onSelectRow: (abs: number) => void;
+  onContextMenu: (x: number, y: number, row: WindowRow) => void;
 }) {
   const renderRow = useCallback(
     (index: number, style: CSSProperties): ReactNode => {
       const row = getRow(index);
+      if (row.fold) {
+        // A collapsed run: one full-width, clickable marker (both panes show it).
+        return (
+          <button
+            key={index}
+            type="button"
+            className="row fold-row"
+            style={style}
+            title="Click to expand these unchanged lines"
+            onClick={() => onExpandFold(row.fold!.runStart)}
+          >
+            <span className="fold-label">
+              ⋯ {row.fold.count.toLocaleString()} unchanged {row.fold.count === 1 ? "line" : "lines"}
+            </span>
+          </button>
+        );
+      }
       const text = side === "left" ? row.left : row.right;
       const no = side === "left" ? row.leftNo : row.rightNo;
       const current = index === currentIndex ? " row-current" : "";
       return (
-        <div key={index} className={`row side row-${row.status}${current}`} style={style}>
+        <div
+          key={index}
+          className={`row side row-${row.status}${current}`}
+          style={style}
+          onClick={() => onSelectRow(row.abs)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            onSelectRow(row.abs);
+            onContextMenu(e.clientX, e.clientY, row);
+          }}
+        >
           <span className="lineno">{no ?? ""}</span>
           <span className="cell" title={row.loaded ? text : undefined}>
             {row.loaded ? renderSide(row, side, query, caseSensitive) : <span className="cell-loading">⋯</span>}
@@ -593,7 +684,7 @@ function Pane({
         </div>
       );
     },
-    [getRow, side, currentIndex, query, caseSensitive],
+    [getRow, side, currentIndex, query, caseSensitive, onExpandFold, onSelectRow, onContextMenu],
   );
 
   return (
@@ -738,6 +829,90 @@ function OverviewRuler({
       onClick={onClick}
       title="Click to jump to that position"
     />
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Copy context menu
+ * ------------------------------------------------------------------ */
+
+/**
+ * A small right-click menu offering to copy a row's left / right / both sides.
+ * Closes on any outside click, Escape, or after an action. Positioned at the
+ * cursor, nudged back on-screen if it would overflow the right/bottom edge.
+ */
+function CopyMenu({
+  x,
+  y,
+  row,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  row: WindowRow;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x, y });
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) {
+      return;
+    }
+    const { width, height } = el.getBoundingClientRect();
+    setPos({
+      x: Math.min(x, window.innerWidth - width - 4),
+      y: Math.min(y, window.innerHeight - height - 4),
+    });
+  }, [x, y]);
+
+  useEffect(() => {
+    // Dismiss on a press outside the menu (but not inside — otherwise this
+    // capture-phase handler would unmount the menu before an item's click).
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) {
+        return;
+      }
+      onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("mousedown", onDown, true);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("resize", onClose);
+    return () => {
+      window.removeEventListener("mousedown", onDown, true);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("resize", onClose);
+    };
+  }, [onClose]);
+
+  const act = (text: string) => {
+    void copyToClipboard(text);
+    onClose();
+  };
+
+  return (
+    <div ref={ref} className="context-menu" style={{ left: pos.x, top: pos.y }} role="menu">
+      <button type="button" className="context-item" role="menuitem" onClick={() => act(row.left)}>
+        Copy left line
+      </button>
+      <button type="button" className="context-item" role="menuitem" onClick={() => act(row.right)}>
+        Copy right line
+      </button>
+      <button
+        type="button"
+        className="context-item"
+        role="menuitem"
+        onClick={() => act(`${row.left}\t${row.right}`)}
+      >
+        Copy row (both)
+      </button>
+    </div>
   );
 }
 

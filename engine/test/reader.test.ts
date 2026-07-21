@@ -110,6 +110,30 @@ describe("readFileDocumentStreamed", () => {
     expect(doc.lines).toEqual([]);
   });
 
+  it("splits classic-Mac (lone CR) line endings", async () => {
+    const file = join(dir, "cr.txt");
+    await writeFile(file, "a\rb\rc", "utf8");
+    const doc = await readFileDocumentStreamed(file);
+    expect(doc.lines).toEqual(["a", "b", "c"]);
+  });
+
+  it("drops the trailing terminator on a CR-ended file but keeps interior blanks", async () => {
+    const trailing = join(dir, "cr-trailing.txt");
+    await writeFile(trailing, "a\rb\r", "utf8");
+    expect((await readFileDocumentStreamed(trailing)).lines).toEqual(["a", "b"]);
+
+    const blank = join(dir, "cr-blank.txt");
+    await writeFile(blank, "a\r\rb", "utf8");
+    expect((await readFileDocumentStreamed(blank)).lines).toEqual(["a", "", "b"]);
+  });
+
+  it("handles mixed CRLF + lone CR in one file", async () => {
+    const file = join(dir, "mixed.txt");
+    await writeFile(file, "a\r\nb\rc\nd", "utf8");
+    const doc = await readFileDocumentStreamed(file);
+    expect(doc.lines).toEqual(["a", "b", "c", "d"]);
+  });
+
   it("reports progress for large inputs", async () => {
     const file = join(dir, "big.txt");
     const total = 250_000;

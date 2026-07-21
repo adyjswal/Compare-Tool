@@ -3,6 +3,8 @@
 .vscode/**
 src/**
 webview/**
+test/**
+scripts/**
 node_modules/**
 esbuild.js
 tsconfig.json

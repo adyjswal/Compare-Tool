@@ -120,6 +120,14 @@ export interface FindMessage {
   caseSensitive: boolean;
 }
 
+/**
+ * Webview → host: export the diff. The host owns all the text, so it drives the
+ * whole flow (QuickPick for format + scope, save dialog, streamed write).
+ */
+export interface ExportMessage {
+  type: "export";
+}
+
 export type HostToWebviewMessage =
   | StatusMessage
   | ReadyResultMessage
@@ -134,4 +142,5 @@ export type WebviewToHostMessage =
   | SwapMessage
   | OpenSideMessage
   | GetWindowMessage
-  | FindMessage;
+  | FindMessage
+  | ExportMessage;

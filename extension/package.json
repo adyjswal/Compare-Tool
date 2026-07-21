@@ -1,16 +1,29 @@
 {
   "name": "large-file-compare",
   "displayName": "Large File Compare",
-  "description": "Sort and compare very large text files (200k-300k lines) such as SQL exports and structured config/property files.",
-  "version": "0.0.1",
+  "description": "Sort and compare very large text files (200k-1M lines) such as SQL exports and structured config/property files.",
+  "version": "0.1.0",
   "publisher": "your-publisher-id",
   "license": "MIT",
+  "icon": "media/icon.png",
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "diff",
+    "compare",
+    "large files",
+    "sort",
+    "csv",
+    "sql"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/large-file-compare.git"
+  },
   "main": "./dist/extension.js",
   "activationEvents": [],
   "contributes": {
@@ -61,22 +74,23 @@
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "package": "node esbuild.js --production",
+    "icon": "node scripts/make-icon.js",
     "check-types": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p webview/tsconfig.json",
+    "test": "vitest run",
+    "vsix": "npm run package && vsce package --no-dependencies",
     "vscode:prepublish": "npm run package"
   },
-  "dependencies": {
-    "@large-file-compare/engine": "*",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-window": "^1.8.11"
-  },
   "devDependencies": {
+    "@large-file-compare/engine": "*",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "@types/react-window": "^1.8.8",
     "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.2.1",
     "esbuild": "^0.28.1",
-    "typescript": "^5.5.4"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.5.4",
+    "vitest": "^4.1.10"
   }
 }

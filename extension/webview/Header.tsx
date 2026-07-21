@@ -20,6 +20,8 @@ interface HeaderProps {
   onSwap: () => void;
   /** Open one side's document in an editor tab to edit it. */
   onOpenSide: (side: "left" | "right") => void;
+  /** Export the diff (host prompts for CSV/text + scope, then a save dialog). */
+  onExport: () => void;
 }
 
 /** Top bar: file names and per-category counts. */
@@ -30,6 +32,7 @@ export function Header({
   onReload,
   onSwap,
   onOpenSide,
+  onExport,
 }: HeaderProps) {
   const { left, right, summary } = data;
   return (
@@ -78,6 +81,14 @@ export function Header({
           <Chip status="removed" value={summary.removed} navCount={navCounts.removed} onNavigate={onNavigate} />
           <Chip status="added" value={summary.added} navCount={navCounts.added} onNavigate={onNavigate} />
         </div>
+        <button
+          type="button"
+          className="export-btn"
+          onClick={onExport}
+          title="Export the diff to a CSV or text file"
+        >
+          ⭳ Export
+        </button>
       </div>
     </header>
   );

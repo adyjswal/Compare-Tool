@@ -481,9 +481,7 @@ body {
 /* The scroll containers are focusable (tabIndex) so arrow/PageUp/Down/Home/End
    scroll them; don't paint a focus ring on the pane itself, like VS Code. */
 .pane:focus,
-.pane:focus-visible,
-.unified-list:focus,
-.unified-list:focus-visible {
+.pane:focus-visible {
   outline: none;
 }
 
@@ -519,25 +517,6 @@ body {
   background: var(--vscode-editorGutter-background, var(--vscode-editor-background));
 }
 
-/* ---- Unified layout ---- */
-/* Old + new line-number gutters (GitHub-style). Both stay pinned while the
-   content scrolls horizontally; the new-number gutter sits just right of the
-   old one (its width is 6ch of digits + 12px padding). */
-.lineno-new {
-  left: calc(6ch + 12px);
-}
-
-.marker {
-  flex: 0 0 auto;
-  width: 2ch;
-  text-align: center;
-  opacity: 0.7;
-}
-
-.text {
-  flex: 1 1 auto;
-}
-
 .row:not(.side).row-added {
   background: rgba(46, 160, 67, 0.15);
 }
@@ -552,6 +531,32 @@ body {
 .cell-loading {
   opacity: 0.35;
   user-select: none;
+}
+
+/* ---- Fold marker (collapsed unchanged run) ---- */
+/* Rendered in both panes as a full-width, clickable, normal-height row so the
+   scaled virtualizer's fixed row height is preserved. */
+.fold-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  padding: 0 6px 0 calc(6ch + 12px); /* line up past the line-number gutter */
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 13px);
+  text-align: left;
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground, rgba(128, 128, 128, 0.9));
+  background: var(--vscode-diffEditor-unchangedRegionBackground, rgba(128, 128, 128, 0.08));
+}
+.fold-row:hover {
+  color: var(--vscode-textLink-foreground, var(--vscode-foreground));
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.18));
+}
+.fold-label {
+  white-space: pre;
 }
 
 /* ---- Side-by-side cells ---- */
@@ -605,8 +610,7 @@ body {
   background: var(--vscode-list-activeSelectionBackground, rgba(0, 127, 212, 0.35));
   color: var(--vscode-list-activeSelectionForeground, inherit);
 }
-.row-current .lineno,
-.row-current .marker {
+.row-current .lineno {
   background: var(--vscode-list-activeSelectionBackground, rgba(0, 127, 212, 0.35));
 }
 
@@ -685,4 +689,50 @@ body {
 .empty-rows {
   padding: 20px;
   opacity: 0.7;
+}
+
+/* ---- Export button (header) ---- */
+.export-btn {
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  border-radius: 4px;
+  padding: 2px 9px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--vscode-foreground);
+  background: transparent;
+}
+.export-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+/* ---- Copy context menu ---- */
+.context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 160px;
+  padding: 4px;
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  border-radius: 5px;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526));
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
+}
+.context-item {
+  display: block;
+  width: 100%;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  background: transparent;
+}
+.context-item:hover {
+  color: var(--vscode-menu-selectionForeground, inherit);
+  background: var(--vscode-menu-selectionBackground, rgba(90, 93, 94, 0.5));
 }

@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from "react";
+import type { ViewMode } from "./rowModel";
 
 /**
  * The find + sort toolbar shown above the diff.
@@ -25,6 +26,9 @@ interface ToolbarProps {
   onIgnoreWhitespaceChange: (value: boolean) => void;
   sort: SortChoice;
   onSortChange: (sort: SortChoice) => void;
+  /** Which unchanged-row view is active (all / collapsed / only changes). */
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
 }
 
 export function Toolbar({
@@ -39,6 +43,8 @@ export function Toolbar({
   onIgnoreWhitespaceChange,
   sort,
   onSortChange,
+  viewMode,
+  onViewModeChange,
 }: ToolbarProps) {
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
@@ -69,6 +75,39 @@ export function Toolbar({
             onClick={() => onCaseSensitiveSearchChange(!caseSensitiveSearch)}
           >
             Aa
+          </button>
+        </div>
+      </div>
+
+      <div className="toolbar-group view-group">
+        <span className="sort-label">Unchanged</span>
+        <div className="view-toggle" role="group" aria-label="Unchanged rows view">
+          <button
+            type="button"
+            className={viewMode === "all" ? "active" : ""}
+            aria-pressed={viewMode === "all"}
+            title="Show every row"
+            onClick={() => onViewModeChange("all")}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            className={viewMode === "collapsed" ? "active" : ""}
+            aria-pressed={viewMode === "collapsed"}
+            title="Collapse long unchanged runs into expandable folds"
+            onClick={() => onViewModeChange("collapsed")}
+          >
+            Collapsed
+          </button>
+          <button
+            type="button"
+            className={viewMode === "changes" ? "active" : ""}
+            aria-pressed={viewMode === "changes"}
+            title="Hide unchanged rows entirely — show only differences"
+            onClick={() => onViewModeChange("changes")}
+          >
+            Only changes
           </button>
         </div>
       </div>

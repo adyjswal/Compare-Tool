@@ -13,6 +13,6 @@
     "build:extension": "npm run build --workspace large-file-compare",
     "compile": "npm run build:engine && npm run build:extension",
     "check-types": "npm run check-types --workspace large-file-compare",
-    "test": "npm run test --workspace @large-file-compare/engine"
+    "test": "npm run test --workspaces --if-present"
   }
 }

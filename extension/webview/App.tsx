@@ -15,6 +15,8 @@ import type { SortChoice } from "./Toolbar";
 import { NavBar } from "./NavBar";
 import { DiffList } from "./DiffList";
 import type { DiffListHandle, WindowRow } from "./DiffList";
+import { buildRowModel, CONTEXT_ROWS } from "./rowModel";
+import type { ViewMode } from "./rowModel";
 
 /** Metadata for the comparison on screen (the row text is fetched on demand). */
 interface Meta {
@@ -31,6 +33,7 @@ type NavTarget = { kind: "find" } | { kind: "status"; status: DiffStatus };
 
 const STATUS: DiffStatus[] = ["unchanged", "added", "removed", "changed"];
 const EMPTY = new Int32Array(0);
+const EMPTY_STATUSES = new Uint8Array(0);
 
 /** Advance a cursor within a list of indices, wrapping at both ends. */
 function nextPos(pos: number, length: number, direction: 1 | -1): number {
@@ -56,6 +59,12 @@ export function App() {
   const [pairChanged, setPairChanged] = useState(true);
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(true);
 
+  // Unchanged-rows view (feature 1 & 2): "all" shows every row, "changes" hides
+  // unchanged rows, "collapsed" folds long unchanged runs. `expanded` holds the
+  // run-start indices the user has clicked open in collapsed mode.
+  const [viewMode, setViewMode] = useState<ViewMode>("all");
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+
   const comparisonId = useRef<number | undefined>(undefined);
   // On-demand text cache (one slot per row; undefined until fetched).
   const leftText = useRef<(string | undefined)[]>([]);
@@ -69,8 +78,10 @@ export function App() {
   const [navPos, setNavPos] = useState(-1);
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
   const diffRef = useRef<DiffListHandle>(null);
-
-  const total = statuses?.length ?? 0;
+  // An absolute row waiting to be scrolled to once the display model rebuilds
+  // (used when jumping into a fold we just expanded — its display index only
+  // exists after the rebuild).
+  const pendingScroll = useRef<number | null>(null);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -96,11 +107,14 @@ export function App() {
           setSort("original");
           setPairChanged(true);
           setIgnoreWhitespace(true);
+          setViewMode("all");
         }
-        // Rows changed (fresh compare or recompute): drop cached text + nav.
+        // Rows changed (fresh compare or recompute): drop cached text + nav, and
+        // any fold expansions (row indices are no longer meaningful).
         leftText.current = new Array(m.statuses.length);
         rightText.current = new Array(m.statuses.length);
         requested.current = new Set();
+        setExpanded(new Set());
         setMatchIndices(null);
         setNav(null);
         setNavPos(-1);
@@ -194,46 +208,114 @@ export function App() {
     [occurrences],
   );
 
-  // A row for the list: status + line numbers from local metadata, text from the
-  // on-demand cache (loaded=false until its window arrives).
+  // The display model maps the virtual list's display indices to absolute rows
+  // (or fold markers) per the current view mode. "all" is a zero-alloc identity.
+  const model = useMemo(
+    () => buildRowModel(statuses ?? EMPTY_STATUSES, viewMode, CONTEXT_ROWS, expanded),
+    [statuses, viewMode, expanded],
+  );
+
+  // A row for the list, addressed by *display* index. A fold slot returns a
+  // marker (`fold` set); otherwise it's a real row: status + line numbers from
+  // local metadata, text from the on-demand cache (loaded=false until it lands).
   const getRow = useCallback(
-    (index: number): WindowRow => {
-      const s = statuses ? statuses[index] : 0;
-      const lt = leftText.current[index];
+    (displayIndex: number): WindowRow => {
+      const v = model.map ? model.map[displayIndex] : displayIndex;
+      if (model.map && v < 0) {
+        const fold = model.folds[-1 - v];
+        return { status: "unchanged", left: "", right: "", leftNo: null, rightNo: null, loaded: true, abs: -1, fold };
+      }
+      const abs = v;
+      const s = statuses ? statuses[abs] : 0;
+      const lt = leftText.current[abs];
       return {
         status: STATUS[s],
         left: lt ?? "",
-        right: rightText.current[index] ?? "",
-        leftNo: leftNo[index] || null,
-        rightNo: rightNo[index] || null,
+        right: rightText.current[abs] ?? "",
+        leftNo: leftNo[abs] || null,
+        rightNo: rightNo[abs] || null,
         loaded: lt !== undefined,
+        abs,
       };
       // loadTick in deps: identity changes when the cache fills, so the
       // memoized panes re-render the rows that just loaded.
     },
-    [statuses, leftNo, rightNo, loadTick],
+    [statuses, leftNo, rightNo, loadTick, model],
   );
 
-  // Ask the host for the text of any visible rows we don't have yet.
+  // Ask the host for the text of any visible rows we don't have yet. `start` /
+  // `stop` are display indices; fold slots carry no text and are skipped.
   const onVisibleRange = useCallback(
     (start: number, stop: number) => {
       const need: number[] = [];
-      for (let i = Math.max(0, start); i <= stop && i < total; i++) {
-        if (leftText.current[i] === undefined && !requested.current.has(i)) {
-          requested.current.add(i);
-          need.push(i);
+      for (let d = Math.max(0, start); d <= stop && d < model.count; d++) {
+        const v = model.map ? model.map[d] : d;
+        if (model.map && v < 0) {
+          continue; // fold marker
+        }
+        const abs = v;
+        if (leftText.current[abs] === undefined && !requested.current.has(abs)) {
+          requested.current.add(abs);
+          need.push(abs);
         }
       }
       if (need.length > 0) {
         getVsCodeApi().postMessage({ type: "getWindow", indices: need });
       }
     },
-    [total],
+    [model],
   );
 
-  const jumpTo = (index: number) => {
-    setCurrentIndex(index);
-    diffRef.current?.scrollToRow(index);
+  // Display index for an absolute row under the current model (identity in "all").
+  const displayOf = useCallback(
+    (abs: number) => (model.absToDisplay ? model.absToDisplay[abs] : abs),
+    [model],
+  );
+
+  const jumpTo = (abs: number) => {
+    setCurrentIndex(abs);
+    // If the target is hidden inside a fold, expand its run first; the scroll
+    // then happens once the model has rebuilt (see the pendingScroll effect).
+    if (model.map && model.absToDisplay) {
+      const v = model.map[model.absToDisplay[abs]];
+      if (v < 0) {
+        const fold = model.folds[-1 - v];
+        if (abs >= fold.start && abs < fold.end) {
+          pendingScroll.current = abs;
+          setExpanded((prev) => {
+            const next = new Set(prev);
+            next.add(fold.runStart);
+            return next;
+          });
+          return;
+        }
+      }
+    }
+    diffRef.current?.scrollToRow(displayOf(abs));
+  };
+
+  // After the model rebuilds (e.g. a fold we expanded), scroll to the row that
+  // was waiting — its display index only exists now.
+  useEffect(() => {
+    if (pendingScroll.current !== null) {
+      const abs = pendingScroll.current;
+      pendingScroll.current = null;
+      diffRef.current?.scrollToRow(model.absToDisplay ? model.absToDisplay[abs] : abs);
+    }
+  }, [model]);
+
+  // Switching view mode discards fold expansions (they belong to the old view).
+  const changeViewMode = (next: ViewMode) => {
+    setViewMode(next);
+    setExpanded(new Set());
+  };
+
+  const expandFold = (runStart: number) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.add(runStart);
+      return next;
+    });
   };
 
   const matches: Int32Array | number[] = matchIndices ?? EMPTY;
@@ -363,6 +445,7 @@ export function App() {
         onReload={() => getVsCodeApi().postMessage({ type: "reload" })}
         onSwap={() => getVsCodeApi().postMessage({ type: "swap" })}
         onOpenSide={(side) => getVsCodeApi().postMessage({ type: "openSide", side })}
+        onExport={() => getVsCodeApi().postMessage({ type: "export" })}
       />
       <Toolbar
         query={query}
@@ -376,6 +459,8 @@ export function App() {
         onIgnoreWhitespaceChange={onIgnoreWhitespaceChange}
         sort={sort}
         onSortChange={onSortChange}
+        viewMode={viewMode}
+        onViewModeChange={changeViewMode}
       />
       {nav && (
         <NavBar
@@ -391,15 +476,17 @@ export function App() {
       {banner && <div className={`banner banner-${banner.tone}`}>{banner.text}</div>}
       <DiffList
         ref={diffRef}
-        total={total}
-        statuses={statuses}
+        total={model.count}
+        statuses={model.displayStatuses ?? statuses}
         getRow={getRow}
         onVisibleRange={onVisibleRange}
+        onExpandFold={expandFold}
+        onSelectRow={setCurrentIndex}
         leftMaxLen={meta.leftMaxLen}
         rightMaxLen={meta.rightMaxLen}
         leftName={meta.left.name}
         rightName={meta.right.name}
-        currentIndex={currentIndex}
+        currentIndex={currentIndex === null ? null : displayOf(currentIndex)}
         query={query}
         caseSensitive={caseSensitiveSearch}
       />

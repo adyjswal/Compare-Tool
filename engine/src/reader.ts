@@ -109,18 +109,38 @@ export async function readFileDocumentStreamed(
   });
 
   let first = true;
-  for await (let line of rl) {
+  const push = (segment: string): void => {
+    let seg = segment;
     if (first) {
       // Drop a leading UTF-8 BOM from the very first line.
-      if (line.charCodeAt(0) === 0xfeff) {
-        line = line.slice(1);
+      if (seg.charCodeAt(0) === 0xfeff) {
+        seg = seg.slice(1);
       }
       first = false;
     }
-    lines.push(line);
+    lines.push(seg);
     if (onProgress && lines.length % progressEvery === 0) {
       onProgress(lines.length);
     }
+  };
+
+  // `readline` breaks on LF and CRLF but NOT a lone CR, so a classic-Mac
+  // (CR-only) file would otherwise arrive as one giant line. Split any interior
+  // CRs back out. A trailing bare CR is only a terminator, so the empty segment
+  // it leaves is dropped (mirroring splitLines' single-trailing-newline rule).
+  let lastEndedWithCR = false;
+  for await (const raw of rl) {
+    lastEndedWithCR = raw.charCodeAt(raw.length - 1) === 0x0d;
+    if (raw.indexOf("\r") === -1) {
+      push(raw);
+    } else {
+      for (const seg of raw.split("\r")) {
+        push(seg);
+      }
+    }
+  }
+  if (lastEndedWithCR && lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
   }
 
   return { path, lines, isEmpty: lines.length === 0, isBinary: false };

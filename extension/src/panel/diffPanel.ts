@@ -1,4 +1,5 @@
-import { basename } from "node:path";
+import { createWriteStream } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { Worker } from "node:worker_threads";
 import * as vscode from "vscode";
 import type {
@@ -7,6 +8,7 @@ import type {
   HostToWebviewMessage,
   WebviewToHostMessage,
 } from "../protocol";
+import { STATUS_CODES } from "../worker/messages";
 import type {
   ColumnarResult,
   CompareOptions,
@@ -213,6 +215,9 @@ function onWebviewMessage(session: Session, message: WebviewToHostMessage): void
     case "find":
       sendFind(session, message.token, message.query, message.caseSensitive);
       return;
+    case "export":
+      void exportDiff(session);
+      return;
     case "compare":
       recompute(session, message);
       return;
@@ -313,6 +318,156 @@ function sendFind(session: Session, token: number, query: string, caseSensitive:
     token,
     indices: Int32Array.from(matches),
   });
+}
+
+type ExportFormat = "csv" | "txt";
+type ExportScope = "changes" | "all";
+
+/**
+ * Export the diff to a file. The host owns all the text, so it drives the whole
+ * flow: pick a format (CSV / plain text) and scope (changed rows / all rows),
+ * choose a destination, then stream the rows out (streamed so a 1M-row export
+ * never builds one giant string).
+ */
+async function exportDiff(session: Session): Promise<void> {
+  if (!session.result) {
+    void vscode.window.showInformationMessage("Nothing to export yet — the comparison is still loading.");
+    return;
+  }
+
+  const format = await vscode.window.showQuickPick(
+    [
+      { label: "CSV (.csv)", detail: "Spreadsheet columns: Status, line numbers, and both sides.", value: "csv" as ExportFormat },
+      { label: "Plain text (.txt)", detail: "Readable git-style blocks per changed row.", value: "txt" as ExportFormat },
+    ],
+    { placeHolder: "Export format" },
+  );
+  if (!format) {
+    return;
+  }
+  const scope = await vscode.window.showQuickPick(
+    [
+      { label: "Changed rows only", detail: "Added, removed, and changed rows.", value: "changes" as ExportScope },
+      { label: "All rows", detail: "Every row, including unchanged.", value: "all" as ExportScope },
+    ],
+    { placeHolder: "Which rows to export?" },
+  );
+  if (!scope) {
+    return;
+  }
+
+  const ext = format.value === "csv" ? "csv" : "txt";
+  const base = `${uriName(session.leftUri)}-vs-${uriName(session.rightUri)}`.replace(/\.[^.]+$/, "");
+  const dir =
+    session.leftUri.scheme === "file"
+      ? dirname(session.leftUri.fsPath)
+      : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const defaultUri = dir ? vscode.Uri.file(join(dir, `${base}.${ext}`)) : undefined;
+  const target = await vscode.window.showSaveDialog({
+    defaultUri,
+    filters: format.value === "csv" ? { "CSV files": ["csv"] } : { "Text files": ["txt"] },
+  });
+  if (!target) {
+    return;
+  }
+
+  const result = session.result;
+  try {
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: "Exporting diff…" },
+      () => writeDiffFile(target.fsPath, result, format.value, scope.value === "changes"),
+    );
+  } catch (err) {
+    void vscode.window.showErrorMessage(`Large File Compare: export failed — ${toMessage(err)}`);
+    return;
+  }
+  const open = await vscode.window.showInformationMessage(
+    `Exported diff to ${basename(target.fsPath)}.`,
+    "Open file",
+  );
+  if (open) {
+    void vscode.window.showTextDocument(target);
+  }
+}
+
+/** Stream the diff rows to `path` in the chosen format. */
+function writeDiffFile(
+  path: string,
+  result: ColumnarResult,
+  format: ExportFormat,
+  changesOnly: boolean,
+): Promise<void> {
+  const { statuses, lefts, rights } = result;
+  const stream = createWriteStream(path, { encoding: "utf8" });
+  const done = new Promise<void>((resolve, reject) => {
+    stream.on("error", reject);
+    stream.on("finish", resolve);
+  });
+  // Await the drain when the OS buffer is full so a huge export stays bounded.
+  const write = (chunk: string): Promise<void> =>
+    new Promise((resolve) => {
+      if (stream.write(chunk)) {
+        resolve();
+      } else {
+        stream.once("drain", () => resolve());
+      }
+    });
+
+  void (async () => {
+    try {
+      let buf = format === "csv" ? "Status,Left #,Right #,Left,Right\r\n" : "";
+      let leftNo = 0;
+      let rightNo = 0;
+      let sinceFlush = 0;
+      for (let i = 0; i < statuses.length; i++) {
+        const s = statuses[i]; // 0 unchanged, 1 added, 2 removed, 3 changed
+        // Line numbers count over EVERY row so they match the source files, even
+        // when unchanged rows are filtered out of the output below.
+        const ln = s === 0 || s === 2 || s === 3 ? ++leftNo : 0;
+        const rn = s === 0 || s === 1 || s === 3 ? ++rightNo : 0;
+        if (changesOnly && s === 0) {
+          continue;
+        }
+        buf +=
+          format === "csv"
+            ? `${STATUS_CODES[s]},${ln || ""},${rn || ""},${csvField(lefts[i])},${csvField(rights[i])}\r\n`
+            : textBlock(s, ln, rn, lefts[i], rights[i]);
+        if (++sinceFlush >= 2000) {
+          await write(buf);
+          buf = "";
+          sinceFlush = 0;
+        }
+      }
+      if (buf) {
+        await write(buf);
+      }
+      stream.end();
+    } catch (err) {
+      stream.destroy(err instanceof Error ? err : new Error(String(err)));
+    }
+  })();
+
+  return done;
+}
+
+/** RFC-4180 CSV field: quote when it contains a comma, quote, CR or LF. */
+function csvField(value: string): string {
+  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+/** One human-readable text block for a row (git-style +/- markers). */
+function textBlock(status: number, leftNo: number, rightNo: number, left: string, right: string): string {
+  const loc = `L${leftNo || "-"}  R${rightNo || "-"}`;
+  switch (status) {
+    case 1: // added
+      return `ADDED      ${loc}\n  + ${right}\n`;
+    case 2: // removed
+      return `REMOVED    ${loc}\n  - ${left}\n`;
+    case 3: // changed
+      return `CHANGED    ${loc}\n  - ${left}\n  + ${right}\n`;
+    default: // unchanged
+      return `UNCHANGED  ${loc}\n    ${left}\n`;
+  }
 }
 
 /** Re-run this session's comparison under new sort / key options. */
