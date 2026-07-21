@@ -60,10 +60,15 @@ In the panel you can:
 - **Compare as-is** (default) or **sort** first (alphabetical / numeric, asc/desc),
   or **compare by a key column** (pick a delimiter + 1-based column) — matching keys
   with different content show as `changed`, the "sort-and-eyeball-in-Excel" replacement.
+- Choose an **unchanged-rows view**: *All*, *Collapsed* (GitHub-style expandable
+  "⋯ N unchanged lines" folds), or *Only changes* (hide unchanged rows entirely, so a
+  900k-row file collapses to just its differences).
 - **Find** text on either side: matches are highlighted inline and you step through them
-  with the ◂ ▸ buttons or Enter / Shift+Enter; "Only matches" hides the rest.
+  with the ◂ ▸ buttons or Enter / Shift+Enter.
 - **Navigate** by category: click a summary chip to jump to the next row of that status
   (Shift+click for previous).
+- **Export** the diff to CSV or plain text (changed rows only, or all rows), and **copy**
+  a row (right-click → Copy left / right / both, or select + Ctrl/Cmd+C).
 - Scroll the two panes in **lock-step** (vertical *and* horizontal), like VS Code's diff.
 
 ## Useful scripts (run from the repo root)
@@ -91,9 +96,15 @@ Per-package watch modes are also available:
 - **Phase 6a — Performance** ✅ worker thread, streamed reading, line interning +
   prefix/suffix trimming, compact columnar payload, progress + cancel — targets 1M lines.
 - **Phase 6b — Key-column compare** ✅ match rows by a delimited key column (SQL/CSV).
+- **Phase 7 — Views + export** ✅ unchanged-rows view (all / collapsed folds / only changes),
+  export to CSV/text, copy a row, and a packaged `.vsix`.
 
 ## Notes
 
-- `publisher` in `extension/package.json` is a placeholder (`your-publisher-id`). Set a
-  real publisher id before packaging or publishing to the Marketplace.
-- Packaging to a `.vsix` later: `npx @vscode/vsce package` from the `extension/` folder.
+- `publisher` in `extension/package.json` is a placeholder (`your-publisher-id`). A local
+  `.vsix` installs fine with it; set a real publisher id before publishing to the Marketplace.
+- Package to a `.vsix`: `npm run vsix` from the `extension/` folder (builds production bundles,
+  then runs `vsce package --no-dependencies` since deps are bundled by esbuild). Install it with
+  `code --install-extension extension/large-file-compare-0.1.0.vsix` or the Extensions view's
+  "Install from VSIX…".
+- The extension's own README / CHANGELOG / LICENSE (marketplace copy) live in `extension/`.
