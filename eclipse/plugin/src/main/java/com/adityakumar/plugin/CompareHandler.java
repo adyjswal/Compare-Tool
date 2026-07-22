@@ -1,6 +1,7 @@
 package com.adityakumar.plugin;
 
 import com.adityakumar.engine.DiffOptions;
+import com.adityakumar.engine.SortOptions;
 
 import org.eclipse.core.commands.AbstractHandler;
 import org.eclipse.core.commands.ExecutionEvent;
@@ -36,7 +37,8 @@ public class CompareHandler extends AbstractHandler {
         // ---- 2. Choose diff options ----------------------------------- //
         CompareOptionsDialog optsDlg = new CompareOptionsDialog(shell);
         if (optsDlg.open() != Window.OK) return null;
-        DiffOptions opts = optsDlg.getDiffOptions();
+        DiffOptions diffOpts = optsDlg.getDiffOptions();
+        SortOptions sortOpts = optsDlg.getSortOptions();
 
         // ---- 3. Open the view ---------------------------------------- //
         IWorkbenchPage page = window.getActivePage();
@@ -47,12 +49,8 @@ public class CompareHandler extends AbstractHandler {
             throw new ExecutionException("Cannot open Large File Compare view", e);
         }
 
-        // ---- 4. Run the diff in a background job --------------------- //
-        final DiffViewPart finalView = view;
-        new DiffBackgroundJob(leftPath, rightPath, opts,
-            result -> finalView.displayResult(result),
-            error  -> finalView.displayError(error)
-        ).schedule();
+        // ---- 4. Hand off to the view (starts job + syncs toolbar) ---- //
+        view.startComparison(leftPath, rightPath, diffOpts, sortOpts);
 
         return null;
     }

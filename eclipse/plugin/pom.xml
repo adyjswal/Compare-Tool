@@ -22,4 +22,32 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+                Tycho's eclipse-plugin lifecycle does not bind maven-surefire-plugin
+                to the test phase. Explicitly bind it so that engine-only unit tests
+                (SorterTest, etc.) run during `mvn test`.  These tests use only
+                pure-Java engine classes with no SWT/OSGi dependencies.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <executions>
+                    <execution>
+                        <id>engine-unit-tests</id>
+                        <phase>test</phase>
+                        <goals><goal>test</goal></goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <includes>
+                        <include>**/engine/*Test.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

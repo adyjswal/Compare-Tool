@@ -4,6 +4,8 @@ import com.adityakumar.engine.Differ;
 import com.adityakumar.engine.DiffOptions;
 import com.adityakumar.engine.DiffResult;
 import com.adityakumar.engine.Reader;
+import com.adityakumar.engine.Sorter;
+import com.adityakumar.engine.SortOptions;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
@@ -20,35 +22,46 @@ import java.util.function.Consumer;
  * Results are delivered via callbacks which must dispatch to the UI thread
  * themselves (see {@link DiffViewPart#displayResult}).
  *
- * <p><b>Memory note:</b> {@link Reader#readLines} uses
- * {@code Files.readAllLines()}, which loads the whole file into an
+ * <p><b>Sort precedence:</b> key-column &gt; sort &gt; positional.
+ * When {@code sortOptions} is non-null <em>and</em> no key column is configured,
+ * both line lists are sorted before diffing and the diff mode is forced to
+ * {@code "set"} (sorted lines should never be compared positionally).
+ * When a key column is active, sorting is silently ignored — key matching
+ * already provides the correct record alignment.
+ *
+ * <p><b>Memory note:</b> {@link Reader#readLines} loads the whole file into an
  * {@code ArrayList<String>}.  For the target file sizes (up to ~2 M lines)
- * this keeps both line arrays in the JVM heap for the duration of the diff —
- * the same invariant as the VS Code worker.  A streaming reader would produce
- * the same heap footprint because the diff engine needs random access to both
- * arrays anyway, so there is no benefit to incremental reading here.
+ * this is the same invariant as the VS Code worker; random access is required
+ * by the diff engine so streaming wouldn't help here.
  */
 public class DiffBackgroundJob extends Job {
 
     private final String leftPath;
     private final String rightPath;
     private final DiffOptions options;
+    private final SortOptions sortOptions;   // null = no sort
     private final Consumer<DiffResult> onResult;
     private final Consumer<String>     onError;
 
-    public DiffBackgroundJob(String leftPath, String rightPath, DiffOptions options,
+    /**
+     * @param sortOptions may be {@code null} (no sort). Ignored when
+     *                    {@code options.key} is non-null (key mode takes precedence).
+     */
+    public DiffBackgroundJob(String leftPath, String rightPath,
+                             DiffOptions options, SortOptions sortOptions,
                              Consumer<DiffResult> onResult, Consumer<String> onError) {
         super("Large File Compare: comparing…");
-        this.leftPath  = leftPath;
-        this.rightPath = rightPath;
-        this.options   = options;
-        this.onResult  = onResult;
-        this.onError   = onError;
+        this.leftPath    = leftPath;
+        this.rightPath   = rightPath;
+        this.options     = options;
+        this.sortOptions = sortOptions;
+        this.onResult    = onResult;
+        this.onError     = onError;
     }
 
     @Override
     protected IStatus run(IProgressMonitor monitor) {
-        monitor.beginTask("Comparing files", 3);
+        monitor.beginTask("Comparing files", 4);
         try {
             // Binary check
             if (Reader.isProbablyBinary(leftPath) || Reader.isProbablyBinary(rightPath)) {
@@ -66,7 +79,21 @@ public class DiffBackgroundJob extends Job {
             monitor.worked(1);
             if (monitor.isCanceled()) return Status.CANCEL_STATUS;
 
-            DiffResult result = Differ.diffLines(leftLines, rightLines, options);
+            // Apply sort when requested AND not in key-column mode.
+            // Key precedence: key > sort > positional.
+            DiffOptions effectiveOptions = options;
+            if (sortOptions != null && options.key == null) {
+                leftLines  = Sorter.sortLines(leftLines, sortOptions);
+                rightLines = Sorter.sortLines(rightLines, sortOptions);
+                // Sorted lines must use "set" mode — positional pairing of sorted
+                // data produces meaningless changed rows.
+                effectiveOptions = new DiffOptions(
+                        "set", null,
+                        options.trim, options.caseInsensitive, options.pairChanged);
+            }
+
+            DiffResult result = Differ.diffLines(leftLines, rightLines, effectiveOptions);
+            monitor.worked(1);
             onResult.accept(result);
 
         } catch (Exception e) {
