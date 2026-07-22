@@ -3,6 +3,10 @@
 Release notes for the **Large File Compare** VS Code extension. The authoritative,
 extension-bundled log is [extension/CHANGELOG.md](extension/CHANGELOG.md).
 
+## [0.1.3]
+
+- Docs: added a screenshot of the side-by-side diff to the Marketplace listing.
+
 ## [0.1.2]
 
 - Docs: clearer Marketplace listing (compare-mode guide + key-column example, panel

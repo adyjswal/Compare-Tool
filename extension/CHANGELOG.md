@@ -2,6 +2,10 @@
 
 All notable changes to the **Large File Compare** extension are documented here.
 
+## [0.1.3]
+
+- Docs: added a screenshot of the side-by-side diff to the Marketplace listing.
+
 ## [0.1.2]
 
 - Docs: clearer Marketplace listing — a compare-mode guide (as-is / sort-first / key-column,
