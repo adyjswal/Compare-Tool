@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   FileInfo,
   FindResultMessage,
+  InitSettingsMessage,
+  PersistedSettings,
   ReadyResultMessage,
+  SaveSettingsMessage,
   StatusMessage,
   WindowMessage,
 } from "../src/protocol";
@@ -52,9 +55,13 @@ export function App() {
   // loaded (getRow depends on it so the memoized panes refresh).
   const [loadTick, setLoadTick] = useState(0);
 
+  const [wordWrap, setWordWrap] = useState(true);
+
   // Find + sort (host round-trips) state.
   const [query, setQuery] = useState("");
   const [caseSensitiveSearch, setCaseSensitiveSearch] = useState(false);
+  const [isRegex, setIsRegex] = useState(false);
+  const [isRegexError, setIsRegexError] = useState(false);
   const [sort, setSort] = useState<SortChoice>("original");
   const [pairChanged, setPairChanged] = useState(true);
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(true);
@@ -159,7 +166,25 @@ export function App() {
         if (m.comparisonId !== comparisonId.current || m.token !== findToken.current) {
           return;
         }
-        setMatchIndices(m.indices);
+        if (m.regexError) {
+          setIsRegexError(true);
+          setMatchIndices(null);
+        } else {
+          setIsRegexError(false);
+          setMatchIndices(m.indices);
+        }
+        return;
+      }
+      if (message?.type === "init-settings") {
+        const s = (message as InitSettingsMessage).settings as PersistedSettings;
+        setSort(s.sort as SortChoice);
+        setViewMode(s.viewMode as ViewMode);
+        setIgnoreWhitespace(s.ignoreWhitespace);
+        setPairChanged(s.pairChanged);
+        setKeyEnabled(s.keyEnabled);
+        setKeyDelimiter(s.keyDelimiter);
+        setKeyColumn(s.keyColumn);
+        setWordWrap(s.wordWrap);
         return;
       }
     };
@@ -168,19 +193,30 @@ export function App() {
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
+  // Persist toolbar settings to the host whenever they change, so the next
+  // panel (including after a VS Code restart) opens with these values.
+  useEffect(() => {
+    getVsCodeApi().postMessage({
+      type: "save-settings",
+      settings: { sort, viewMode, ignoreWhitespace, pairChanged, keyEnabled, keyDelimiter, keyColumn, wordWrap },
+    } satisfies SaveSettingsMessage);
+  }, [sort, viewMode, ignoreWhitespace, pairChanged, keyEnabled, keyDelimiter, keyColumn, wordWrap]);
+
   // Find runs on the host (it holds all the text). Debounced; re-run when the
-  // query, case option, or the underlying rows (recompute) change.
+  // query, case option, regex mode, or the underlying rows (recompute) change.
   useEffect(() => {
     if (!statuses || query === "") {
       setMatchIndices(null);
+      setIsRegexError(false);
       return;
     }
+    setIsRegexError(false);
     const token = ++findToken.current;
     const timer = setTimeout(() => {
-      getVsCodeApi().postMessage({ type: "find", token, query, caseSensitive: caseSensitiveSearch });
+      getVsCodeApi().postMessage({ type: "find", token, query, caseSensitive: caseSensitiveSearch, isRegex });
     }, 150);
     return () => clearTimeout(timer);
-  }, [query, caseSensitiveSearch, statuses]);
+  }, [query, caseSensitiveSearch, isRegex, statuses]);
 
   // Per-row line numbers, derived once from the status column (prefix sums).
   const { leftNo, rightNo } = useMemo(() => {
@@ -320,6 +356,14 @@ export function App() {
     setExpanded(new Set());
   };
 
+  const handleExpandAll = () => {
+    setExpanded(new Set(model.folds.map((f) => f.runStart)));
+  };
+
+  const handleCollapseAll = () => {
+    setExpanded(new Set());
+  };
+
   const expandFold = (runStart: number) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -360,17 +404,20 @@ export function App() {
     jumpTo(navIndices[pos]);
   };
 
-  const findStep = (direction: 1 | -1) => {
-    const len = matches.length;
-    if (len === 0) {
-      return;
-    }
-    const base = nav && nav.kind === "find" ? navPos : -1;
-    const pos = nextPos(base, len, direction);
-    setNav({ kind: "find" });
-    setNavPos(pos);
-    jumpTo(matches[pos]);
-  };
+  const findStep = useCallback(
+    (direction: 1 | -1) => {
+      const len = matches.length;
+      if (len === 0) {
+        return;
+      }
+      const base = nav && nav.kind === "find" ? navPos : -1;
+      const pos = nextPos(base, len, direction);
+      setNav({ kind: "find" });
+      setNavPos(pos);
+      jumpTo(matches[pos]);
+    },
+    [matches, nav, navPos, jumpTo],
+  );
 
   const handleChip = (status: DiffStatus) => {
     const indices = occurrences[status];
@@ -382,24 +429,43 @@ export function App() {
     jumpTo(indices[0]);
   };
 
-  const dismissNav = () => {
+  const dismissNav = useCallback(() => {
     setNav(null);
     setNavPos(-1);
     setCurrentIndex(null);
-  };
+  }, []);
+
+  const findInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!nav) {
-      return;
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        dismissNav();
+    function handleKeyDown(e: KeyboardEvent) {
+      const inInput =
+        e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        findInputRef.current?.focus();
+        return;
       }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [nav]);
+      if (inInput) return;
+      if (e.key === "Escape") {
+        dismissNav();
+        return;
+      }
+      if ((e.altKey && e.key === "ArrowDown") || (e.key === "F3" && !e.shiftKey)) {
+        e.preventDefault();
+        findStep(1);
+        return;
+      }
+      if ((e.altKey && e.key === "ArrowUp") || (e.key === "F3" && e.shiftKey)) {
+        e.preventDefault();
+        findStep(-1);
+        return;
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [findStep, dismissNav]);
 
   // ---- Ask the host to re-compare with new sort / key options ----
   const requestCompare = (next: {
@@ -489,7 +555,11 @@ export function App() {
         onQueryChange={setQuery}
         caseSensitiveSearch={caseSensitiveSearch}
         onCaseSensitiveSearchChange={setCaseSensitiveSearch}
+        isRegex={isRegex}
+        onIsRegexChange={setIsRegex}
+        isRegexError={isRegexError}
         onFindNav={findStep}
+        findInputRef={findInputRef}
         pairChanged={pairChanged}
         onPairChangedChange={onPairChangedChange}
         ignoreWhitespace={ignoreWhitespace}
@@ -498,12 +568,17 @@ export function App() {
         onSortChange={onSortChange}
         viewMode={viewMode}
         onViewModeChange={changeViewMode}
+        onExpandAll={handleExpandAll}
+        onCollapseAll={handleCollapseAll}
+        foldsCount={model.folds.length}
         keyEnabled={keyEnabled}
         onKeyEnabledChange={onKeyEnabledChange}
         keyDelimiter={keyDelimiter}
         onKeyDelimiterChange={onKeyDelimiterChange}
         keyColumn={keyColumn}
         onKeyColumnChange={onKeyColumnChange}
+        wordWrap={wordWrap}
+        onWordWrapChange={setWordWrap}
       />
       {nav && (
         <NavBar
@@ -525,13 +600,14 @@ export function App() {
         onVisibleRange={onVisibleRange}
         onExpandFold={expandFold}
         onSelectRow={setCurrentIndex}
-        leftMaxLen={meta.leftMaxLen}
-        rightMaxLen={meta.rightMaxLen}
+        leftMaxLen={meta?.leftMaxLen ?? 0}
+        rightMaxLen={meta?.rightMaxLen ?? 0}
         leftName={meta.left.name}
         rightName={meta.right.name}
         currentIndex={currentIndex === null ? null : displayOf(currentIndex)}
         query={query}
         caseSensitive={caseSensitiveSearch}
+        wordWrap={wordWrap}
       />
     </div>
   );

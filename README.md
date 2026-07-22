@@ -1,10 +1,31 @@
 # Large File Compare
 
+[![CI](https://github.com/adyjswal/Compare-Tool/actions/workflows/ci.yml/badge.svg)](https://github.com/adyjswal/Compare-Tool/actions/workflows/ci.yml)
 [![VS Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/adityakumar0406.large-file-compare?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=adityakumar0406.large-file-compare)
+[![Open VSX Version](https://img.shields.io/open-vsx/v/AdityaKumar0406/large-file-compare?label=Open%20VSX)](https://open-vsx.org/extension/AdityaKumar0406/large-file-compare)
 [![Installs](https://img.shields.io/visual-studio-marketplace/i/adityakumar0406.large-file-compare)](https://marketplace.visualstudio.com/items?itemName=adityakumar0406.large-file-compare)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](extension/LICENSE)
 
 **Install:** [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=adityakumar0406.large-file-compare) — or in VS Code, open Extensions (`Ctrl+Shift+X`) and search **Large File Compare**.
+
+## Availability
+
+| Registry | Link |
+| --- | --- |
+| VS Code Marketplace | [AdityaKumar0406.large-file-compare](https://marketplace.visualstudio.com/items?itemName=adityakumar0406.large-file-compare) |
+| Open VSX Registry | [AdityaKumar0406/large-file-compare](https://open-vsx.org/extension/AdityaKumar0406/large-file-compare) |
+
+> **Desktop-only.** The extension uses Node.js `worker_threads` for background processing.
+> It will not run in browser-based editors (e.g. vscode.dev / github.dev).
+
+> **CI secrets required.** The release workflow (`release.yml`) publishes to both registries
+> automatically when a `v*.*.*` tag is pushed. Before tagging a release, add two secrets in
+> **GitHub → Settings → Secrets and variables → Actions**:
+>
+> | Secret | Purpose |
+> | --- | --- |
+> | `VSCE_PAT` | Personal Access Token for the VS Code Marketplace (scope: *Marketplace: Manage*) |
+> | `OVSX_PAT` | Personal Access Token for the Open VSX Registry |
 
 A VS Code extension that **sorts and compares very large text files** (200k–2M lines) —
 SQL exports, structured property/config files, CSV dumps, and the like — where VS Code's

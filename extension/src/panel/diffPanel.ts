@@ -6,6 +6,9 @@ import type {
   CompareMessage,
   FileInfo,
   HostToWebviewMessage,
+  InitSettingsMessage,
+  PersistedSettings,
+  SaveSettingsMessage,
   WebviewToHostMessage,
 } from "../protocol";
 import { STATUS_CODES } from "../worker/messages";
@@ -89,7 +92,7 @@ export function showComparison(
   worker.on("error", (err) => send(session, { type: "error", message: toMessage(err) }));
 
   panel.webview.onDidReceiveMessage(
-    (message: WebviewToHostMessage) => onWebviewMessage(session, message),
+    (message: WebviewToHostMessage) => onWebviewMessage(session, context, message),
     undefined,
     context.subscriptions,
   );
@@ -195,12 +198,22 @@ function onWorkerMessage(session: Session, response: WorkerResponse): void {
 }
 
 /** Handle a message from a session's webview. */
-function onWebviewMessage(session: Session, message: WebviewToHostMessage): void {
+function onWebviewMessage(
+  session: Session,
+  context: vscode.ExtensionContext,
+  message: WebviewToHostMessage,
+): void {
   if (!sessions.has(session)) {
     return; // canceled or closed
   }
   switch (message.type) {
-    case "ready":
+    case "ready": {
+      // Send persisted settings to the webview before delivering the result,
+      // so toolbar state from the last session is restored on first render.
+      const saved = context.globalState.get<PersistedSettings>('lfc.settings');
+      if (saved) {
+        void session.panel.webview.postMessage({ type: "init-settings", settings: saved } satisfies InitSettingsMessage);
+      }
       // Re-deliver current state to a (re)mounted webview: the result metadata
       // if we have one (text is re-pulled on demand), else the last status.
       if (session.result) {
@@ -209,11 +222,12 @@ function onWebviewMessage(session: Session, message: WebviewToHostMessage): void
         void session.panel.webview.postMessage(session.pendingMessage);
       }
       return;
+    }
     case "getWindow":
       sendWindow(session, message.indices);
       return;
     case "find":
-      sendFind(session, message.token, message.query, message.caseSensitive);
+      sendFind(session, message.token, message.query, message.caseSensitive, message.isRegex);
       return;
     case "export":
       void exportDiff(session);
@@ -239,6 +253,9 @@ function onWebviewMessage(session: Session, message: WebviewToHostMessage): void
         message.side === "left" ? session.leftUri : session.rightUri,
         { viewColumn: vscode.ViewColumn.Beside, preview: false },
       );
+      return;
+    case "save-settings":
+      void context.globalState.update('lfc.settings', (message as SaveSettingsMessage).settings);
       return;
     case "cancel":
       session.worker.terminate();
@@ -296,19 +313,46 @@ function sendWindow(session: Session, indices: number[]): void {
 }
 
 /** Run a Find over all rows (host holds the text) and return matching indices. */
-function sendFind(session: Session, token: number, query: string, caseSensitive: boolean): void {
+function sendFind(
+  session: Session,
+  token: number,
+  query: string,
+  caseSensitive: boolean,
+  isRegex: boolean,
+): void {
   if (!session.result) {
     return;
   }
   const { lefts, rights } = session.result;
   const matches: number[] = [];
   if (query !== "") {
-    const needle = caseSensitive ? query : query.toLowerCase();
-    for (let i = 0; i < lefts.length; i++) {
-      const l = caseSensitive ? lefts[i] : lefts[i].toLowerCase();
-      const r = caseSensitive ? rights[i] : rights[i].toLowerCase();
-      if (l.includes(needle) || r.includes(needle)) {
-        matches.push(i);
+    if (isRegex) {
+      let re: RegExp;
+      try {
+        re = new RegExp(query, caseSensitive ? "" : "i");
+      } catch {
+        void session.panel.webview.postMessage({
+          type: "find-result",
+          comparisonId: session.comparisonId,
+          token,
+          indices: new Int32Array(0),
+          regexError: true,
+        });
+        return;
+      }
+      for (let i = 0; i < lefts.length; i++) {
+        if (re.test(lefts[i]) || re.test(rights[i])) {
+          matches.push(i);
+        }
+      }
+    } else {
+      const needle = caseSensitive ? query : query.toLowerCase();
+      for (let i = 0; i < lefts.length; i++) {
+        const l = caseSensitive ? lefts[i] : lefts[i].toLowerCase();
+        const r = caseSensitive ? rights[i] : rights[i].toLowerCase();
+        if (l.includes(needle) || r.includes(needle)) {
+          matches.push(i);
+        }
       }
     }
   }

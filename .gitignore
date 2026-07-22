@@ -14,6 +14,9 @@ coverage/
 # Local-only dev artifacts (not published to the repo)
 CLAUDE.md
 TESTING.md
+LEARNING.md
+multi-ide-roadmap-plan.md
+AGENTS.md
 bench/
 samples/
 
@@ -22,8 +25,17 @@ samples/
 .DS_Store
 Thumbs.db
 
-# Skills file
-.bob
-.claude
-.vscode
-AGENTS.md
+# Editor -- ignore personal settings only; keep launch.json and tasks.json tracked
+.vscode/settings.json
+.vscode/*.code-snippets
+
+# Bob / Claude local config (AI-tool config, kept local)
+.bob/
+.claude/settings.local.json
+
+# JetBrains plugin build artifacts
+jetbrains/.gradle/
+jetbrains/build/
+
+# Eclipse plugin build artifacts
+eclipse/*/target/

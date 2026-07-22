@@ -384,6 +384,8 @@ interface DiffListProps {
   currentIndex: number | null;
   query: string;
   caseSensitive: boolean;
+  /** When false, panes do not wrap and scroll horizontally instead. Default true. */
+  wordWrap: boolean;
 }
 
 /**
@@ -395,7 +397,7 @@ interface DiffListProps {
  * scroll horizontally with pinned line-number gutters.
  */
 export const DiffList = forwardRef<DiffListHandle, DiffListProps>(function DiffList(
-  { total, statuses, getRow, onVisibleRange, onExpandFold, onSelectRow, leftMaxLen, rightMaxLen, leftName, rightName, currentIndex, query, caseSensitive },
+  { total, statuses, getRow, onVisibleRange, onExpandFold, onSelectRow, leftMaxLen, rightMaxLen, leftName, rightName, currentIndex, query, caseSensitive, wordWrap },
   ref,
 ) {
   const height = useAvailableHeight();
@@ -471,6 +473,7 @@ export const DiffList = forwardRef<DiffListHandle, DiffListProps>(function DiffL
               currentIndex={currentIndex}
               query={query}
               caseSensitive={caseSensitive}
+              wordWrap={wordWrap}
               leftPaneRef={leftPaneRef}
               onFirstRowChange={setFirstRow}
               onVisibleRange={onVisibleRange}
@@ -510,6 +513,7 @@ const SideBySide = memo(function SideBySide({
   currentIndex,
   query,
   caseSensitive,
+  wordWrap,
   leftPaneRef,
   onFirstRowChange,
   onVisibleRange,
@@ -526,6 +530,7 @@ const SideBySide = memo(function SideBySide({
   currentIndex: number | null;
   query: string;
   caseSensitive: boolean;
+  wordWrap: boolean;
   leftPaneRef: RefObject<ScaledHandle>;
   onFirstRowChange: (firstRow: number) => void;
   onVisibleRange: (start: number, stop: number) => void;
@@ -580,6 +585,7 @@ const SideBySide = memo(function SideBySide({
         currentIndex={currentIndex}
         query={query}
         caseSensitive={caseSensitive}
+        wordWrap={wordWrap}
         outerRef={leftOuter}
         handleRef={leftPaneRef}
         onFirstRowChange={onFirstRowChange}
@@ -598,6 +604,7 @@ const SideBySide = memo(function SideBySide({
         currentIndex={currentIndex}
         query={query}
         caseSensitive={caseSensitive}
+        wordWrap={wordWrap}
         outerRef={rightOuter}
         onExpandFold={onExpandFold}
         onSelectRow={onSelectRow}
@@ -617,6 +624,7 @@ function Pane({
   currentIndex,
   query,
   caseSensitive,
+  wordWrap,
   outerRef,
   handleRef,
   onFirstRowChange,
@@ -634,6 +642,7 @@ function Pane({
   currentIndex: number | null;
   query: string;
   caseSensitive: boolean;
+  wordWrap: boolean;
   outerRef: MutableRefObject<HTMLDivElement | null>;
   handleRef?: RefObject<ScaledHandle>;
   onFirstRowChange?: (firstRow: number) => void;
@@ -690,7 +699,7 @@ function Pane({
   return (
     <ScaledVirtualizer
       ref={handleRef}
-      className={`pane pane-${side}`}
+      className={`pane pane-${side}${wordWrap ? "" : " no-wrap"}`}
       total={total}
       viewportHeight={viewportHeight}
       safeCap={safeCap}

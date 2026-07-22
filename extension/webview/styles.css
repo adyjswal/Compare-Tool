@@ -193,6 +193,10 @@ body {
 .search-input:focus {
   outline: 1px solid var(--vscode-focusBorder, #007fd4);
 }
+.search-input--error {
+  border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground, #f14c4c)) !important;
+  background-color: rgba(241, 76, 76, 0.08);
+}
 
 .check {
   display: inline-flex;
@@ -735,4 +739,17 @@ body {
 .context-item:hover {
   color: var(--vscode-menu-selectionForeground, inherit);
   background: var(--vscode-menu-selectionBackground, rgba(90, 93, 94, 0.5));
+}
+
+/* ---- Word-wrap toggle ---- */
+/* Applied to each pane's scroll container when the Wrap button is OFF. */
+.no-wrap {
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* Ensure row text elements inside a no-wrap pane also stay on one line. */
+.no-wrap .row,
+.no-wrap .cell {
+  white-space: pre;
 }

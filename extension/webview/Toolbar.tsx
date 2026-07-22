@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, RefObject } from "react";
 import type { ViewMode } from "./rowModel";
 
 /**
@@ -18,8 +18,14 @@ interface ToolbarProps {
   onQueryChange: (query: string) => void;
   caseSensitiveSearch: boolean;
   onCaseSensitiveSearchChange: (value: boolean) => void;
+  isRegex: boolean;
+  onIsRegexChange: (v: boolean) => void;
+  /** Shows a red border on the find input when the regex is invalid. */
+  isRegexError: boolean;
   /** Step to the next (+1) or previous (-1) match (Enter / Shift+Enter). */
   onFindNav: (direction: 1 | -1) => void;
+  /** Ref forwarded from App so Ctrl+F can focus this input. */
+  findInputRef?: RefObject<HTMLInputElement>;
   pairChanged: boolean;
   onPairChangedChange: (value: boolean) => void;
   ignoreWhitespace: boolean;
@@ -36,6 +42,15 @@ interface ToolbarProps {
   onKeyDelimiterChange: (value: string) => void;
   keyColumn: number;
   onKeyColumnChange: (value: number) => void;
+  /** Expand all folds (collapsed mode only). */
+  onExpandAll?: () => void;
+  /** Collapse all folds (collapsed mode only). */
+  onCollapseAll?: () => void;
+  /** Number of folds present in the current model; used to disable the buttons. */
+  foldsCount?: number;
+  /** When true (default), long lines wrap inside each pane; when false, panes scroll horizontally. */
+  wordWrap: boolean;
+  onWordWrapChange: (value: boolean) => void;
 }
 
 export function Toolbar({
@@ -43,7 +58,11 @@ export function Toolbar({
   onQueryChange,
   caseSensitiveSearch,
   onCaseSensitiveSearchChange,
+  isRegex,
+  onIsRegexChange,
+  isRegexError,
   onFindNav,
+  findInputRef,
   pairChanged,
   onPairChangedChange,
   ignoreWhitespace,
@@ -58,6 +77,11 @@ export function Toolbar({
   onKeyDelimiterChange,
   keyColumn,
   onKeyColumnChange,
+  onExpandAll,
+  onCollapseAll,
+  foldsCount = 0,
+  wordWrap,
+  onWordWrapChange,
 }: ToolbarProps) {
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
@@ -71,8 +95,9 @@ export function Toolbar({
       <div className="toolbar-group search-group">
         <div className="search-box">
           <input
+            ref={findInputRef}
             type="search"
-            className="search-input"
+            className={`search-input${isRegexError ? " search-input--error" : ""}`}
             placeholder="Find in both files…"
             title="Enter = next match, Shift+Enter = previous"
             value={query}
@@ -88,6 +113,15 @@ export function Toolbar({
             onClick={() => onCaseSensitiveSearchChange(!caseSensitiveSearch)}
           >
             Aa
+          </button>
+          <button
+            type="button"
+            className={`in-search-toggle${isRegex ? " active" : ""}`}
+            aria-pressed={isRegex}
+            title="Use regular expression"
+            onClick={() => onIsRegexChange(!isRegex)}
+          >
+            .*
           </button>
         </div>
       </div>
@@ -123,6 +157,26 @@ export function Toolbar({
             Only changes
           </button>
         </div>
+        {viewMode === "collapsed" && (
+          <>
+            <button
+              type="button"
+              disabled={foldsCount === 0}
+              title="Expand all folded unchanged runs"
+              onClick={onExpandAll}
+            >
+              Expand All
+            </button>
+            <button
+              type="button"
+              disabled={foldsCount === 0}
+              title="Collapse all expanded unchanged runs"
+              onClick={onCollapseAll}
+            >
+              Collapse All
+            </button>
+          </>
+        )}
       </div>
 
       <div className="toolbar-group sort-group">
@@ -213,6 +267,20 @@ export function Toolbar({
           />
           Ignore whitespace
         </label>
+      </div>
+
+      <div className="toolbar-group">
+        <div className="view-toggle" role="group" aria-label="Word wrap">
+          <button
+            type="button"
+            className={wordWrap ? "active" : ""}
+            aria-pressed={wordWrap}
+            title="Toggle word wrap — when off, long lines scroll horizontally"
+            onClick={() => onWordWrapChange(!wordWrap)}
+          >
+            ↵ Wrap
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -66,6 +66,8 @@ export interface FindResultMessage {
   /** Echoes the request's token so stale responses can be ignored. */
   token: number;
   indices: Int32Array;
+  /** Set to true when the query is an invalid regular expression. */
+  regexError?: boolean;
 }
 
 /** Host → webview: the comparison failed (unreadable / binary / etc.). */
@@ -118,6 +120,7 @@ export interface FindMessage {
   token: number;
   query: string;
   caseSensitive: boolean;
+  isRegex: boolean;
 }
 
 /**
@@ -128,12 +131,42 @@ export interface ExportMessage {
   type: "export";
 }
 
+/**
+ * The toolbar/view settings that survive panel close and VS Code restarts.
+ * Stored on the host via ExtensionContext.globalState; seeded into every new
+ * panel at creation time so fresh comparisons remember the last-used options.
+ */
+export interface PersistedSettings {
+  sort: string;           // SortChoice value: "original" | "alpha-asc" | "alpha-desc" | "num-asc" | "num-desc"
+  viewMode: string;       // "all" | "collapsed" | "changes"
+  ignoreWhitespace: boolean;
+  pairChanged: boolean;
+  keyEnabled: boolean;
+  keyDelimiter: string;
+  keyColumn: number;
+  wordWrap: boolean;
+}
+
+/** Host → webview: sent once immediately after the webview posts "ready",
+ *  before any comparison starts, to restore toolbar state from the last session. */
+export interface InitSettingsMessage {
+  type: "init-settings";
+  settings: PersistedSettings;
+}
+
+/** Webview → host: save toolbar settings so the next panel starts with them. */
+export interface SaveSettingsMessage {
+  type: "save-settings";
+  settings: PersistedSettings;
+}
+
 export type HostToWebviewMessage =
   | StatusMessage
   | ReadyResultMessage
   | WindowMessage
   | FindResultMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | InitSettingsMessage;
 export type WebviewToHostMessage =
   | ReadyMessage
   | CompareMessage
@@ -143,4 +176,5 @@ export type WebviewToHostMessage =
   | OpenSideMessage
   | GetWindowMessage
   | FindMessage
-  | ExportMessage;
+  | ExportMessage
+  | SaveSettingsMessage;
