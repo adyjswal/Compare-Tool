@@ -2,6 +2,13 @@
 
 All notable changes to the **Large File Compare** extension are documented here.
 
+## [0.2.0]
+
+- Marketplace icon regenerated at 256×256 for crisp rendering on high-DPI displays.
+- Coordinated release: **Large File Compare is now available on JetBrains IDEs and Eclipse**
+  as native plugins with the same core compare/sort/find/export feature set. No functional
+  change to the VS Code extension itself in this release.
+
 ## [0.1.3]
 
 - Docs: added a screenshot of the side-by-side diff to the Marketplace listing.

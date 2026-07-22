@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.adityakumar.largefilecompare</id>
     <name>Large File Compare</name>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 
     <vendor email="adityakumar0406@gmail.com"
             url="https://github.com/AdityaKumar0406">AdityaKumar0406</vendor>
@@ -27,8 +27,12 @@
                 <b>Positional</b> (line order, default),
                 <b>Set</b> (sorted order, no pairing),
                 <b>Key Column</b> (record reconciliation by a unique ID field)</li>
+            <li><b>Sort</b> before diffing: alphabetical or numeric, ascending or descending</li>
+            <li><b>Find</b> across both panes with case and regular-expression options and
+                previous / next navigation</li>
+            <li><b>Export</b> the diff to CSV or plain text, all rows or changed rows only</li>
+            <li>Ignore-whitespace and &ldquo;show edits as changed&rdquo; toggles</li>
             <li>Case-insensitive comparison toggle</li>
-            <li>Recompute instantly after changing options &mdash; files are not re-read</li>
             <li>Patience diff algorithm: stays fast on 200k&ndash;1M line files where
                 a naive O(m&times;n) LCS would collapse</li>
             <li>Works in every IntelliJ-platform IDE (IDEA, PyCharm, WebStorm, CLion, &hellip;)</li>
@@ -39,12 +43,20 @@
             <li>Open <b>Tools &rarr; Large File Compare: Compare Two Files</b></li>
             <li>Pick the <em>left</em> file, then the <em>right</em> file</li>
             <li>The <em>Large File Compare</em> tool window opens with the side-by-side diff</li>
-            <li>Adjust mode / key-column options in the toolbar and click <b>Recompute</b>
-                to re-diff without re-reading the files</li>
+            <li>Adjust mode, sort, and key-column options in the toolbar and click
+                <b>Recompute</b> to re-diff; use the find box and <b>Export</b> button
+                to search and save results</li>
         </ol>
     ]]></description>
 
     <change-notes><![CDATA[
+        <b>0.2.0</b>
+        <ul>
+            <li>Sort before diffing: alphabetical / numeric, ascending / descending</li>
+            <li>Find across both panes with case and regex options and prev/next navigation</li>
+            <li>Export the diff to CSV or plain text (all rows or changed rows only)</li>
+            <li>Ignore-whitespace and &ldquo;show edits as changed&rdquo; toggles</li>
+        </ul>
         <b>0.1.0</b> &mdash; Initial release
         <ul>
             <li>Side-by-side diff view rendered via a virtualized JBTable (renders only

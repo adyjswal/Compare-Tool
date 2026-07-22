@@ -6,7 +6,7 @@
 
     <groupId>com.adityakumar</groupId>
     <artifactId>large-file-compare-eclipse-parent</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.2.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Large File Compare Eclipse Parent</name>

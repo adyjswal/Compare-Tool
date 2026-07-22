@@ -3,6 +3,14 @@
 Release notes for the **Large File Compare** VS Code extension. The authoritative,
 extension-bundled log is [extension/CHANGELOG.md](extension/CHANGELOG.md).
 
+## [0.2.0]
+
+- **Native JetBrains and Eclipse plugins** join the VS Code extension, each with a real
+  side-by-side virtualized diff viewer and the shared core feature set: positional / set /
+  key-column diff modes, alphabetical & numeric sort, find (case / regex, prev-next), export
+  to CSV / plain text, and ignore-whitespace / show-edits-as-changed toggles.
+- VS Code: Marketplace icon regenerated at 256×256; no functional change to the extension.
+
 ## [0.1.3]
 
 - Docs: added a screenshot of the side-by-side diff to the Marketplace listing.

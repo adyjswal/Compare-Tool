@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: Large File Compare
 Bundle-SymbolicName: com.adityakumar.largefilecompare;singleton:=true
-Bundle-Version: 0.1.0.qualifier
+Bundle-Version: 0.2.0.qualifier
 Bundle-Vendor: AdityaKumar0406
 Bundle-Description: Sort and compare very large text files (200k-2M lines) side by side inside Eclipse. Virtualised SWT table stays smooth at 1M+ rows.
 Bundle-License: https://raw.githubusercontent.com/adityakumar0406/large-file-compare/main/eclipse/LICENSE

@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.adityakumar"
-version = "0.1.0"
+version = "0.2.0"
 
 repositories {
     mavenCentral()
@@ -24,7 +24,7 @@ dependencies {
 intellijPlatform {
     pluginConfiguration {
         name = "Large File Compare"
-        version = "0.1.0"
+        version = "0.2.0"
         ideaVersion {
             sinceBuild = "241"
             // null provider = no until-build in the output XML; the plugin installs on
