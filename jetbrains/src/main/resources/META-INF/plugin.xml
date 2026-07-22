@@ -1,0 +1,31 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <id>com.adityakumar.largefilecompare</id>
+    <name>Large File Compare</name>
+    <vendor>AdityaKumar0406</vendor>
+    <description><![CDATA[
+        Sort and compare very large text files (200k–2M lines) such as SQL exports,
+        CSV dumps, and structured config/property files side by side.
+        Renders in seconds with smooth scrolling — compare as-is, by sort order,
+        or by key column (match rows by a unique ID field).
+    ]]></description>
+
+    <!-- Platform dependency — works in all JetBrains IDEs based on the IntelliJ platform -->
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="LargeFileCompare"
+                    anchor="bottom"
+                    factoryClass="com.adityakumar.plugin.DiffToolWindowFactory"
+                    canCloseContents="false"/>
+    </extensions>
+
+    <actions>
+        <action id="largeFileCompare.compareFiles"
+                class="com.adityakumar.plugin.CompareAction"
+                text="Large File Compare: Compare Two Files"
+                description="Sort and compare two large text files side by side">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

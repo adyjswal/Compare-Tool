@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feature
+      id="com.adityakumar.largefilecompare.feature"
+      label="Large File Compare"
+      version="0.1.0.qualifier"
+      provider-name="AdityaKumar0406">
+
+   <description>
+      Sort and compare very large text files side by side.
+   </description>
+
+   <license url="">
+      MIT License
+   </license>
+
+   <plugin
+         id="com.adityakumar.largefilecompare"
+         download-size="0"
+         install-size="0"
+         version="0.0.0"
+         unpack="false"/>
+
+</feature>

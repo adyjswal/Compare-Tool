@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+
+   <extension point="org.eclipse.ui.views">
+      <category id="com.adityakumar.largefilecompare.category" name="Large File Compare"/>
+      <view id="com.adityakumar.largefilecompare.view"
+            name="Large File Compare"
+            category="com.adityakumar.largefilecompare.category"
+            class="com.adityakumar.plugin.DiffViewPart"
+            allowMultiple="false"/>
+   </extension>
+
+   <extension point="org.eclipse.ui.commands">
+      <command id="com.adityakumar.largefilecompare.compare"
+               name="Compare Two Files (Large File Compare)"
+               description="Sort and compare two large text files side by side"/>
+   </extension>
+
+   <extension point="org.eclipse.ui.handlers">
+      <handler commandId="com.adityakumar.largefilecompare.compare"
+               class="com.adityakumar.plugin.CompareHandler"/>
+   </extension>
+
+   <extension point="org.eclipse.ui.menus">
+      <menuContribution locationURI="menu:org.eclipse.ui.main.menu?after=window">
+         <menu id="com.adityakumar.largefilecompare.menu" label="Large File Compare">
+            <command commandId="com.adityakumar.largefilecompare.compare"
+                     label="Compare Two Files…"/>
+         </menu>
+      </menuContribution>
+   </extension>
+
+</plugin>
