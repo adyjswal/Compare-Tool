@@ -1,5 +1,3 @@
-import org.jetbrains.intellij.platform.gradle.TestFrameworkType
-
 plugins {
     id("org.jetbrains.intellij.platform") version "2.3.0"
     kotlin("jvm") version "2.0.21"
@@ -29,21 +27,28 @@ intellijPlatform {
         version = "0.1.0"
         ideaVersion {
             sinceBuild = "241"
-            // untilBuild is intentionally NOT set — leaving it open allows install on future IDE versions
+            // null provider = no until-build in the output XML; the plugin installs on
+            // any future IDE version instead of being pinned to IDEA 2024.1.x.
+            untilBuild = provider { null }
         }
     }
+
     signing {
-        // Signing config populated at publish time via environment variables
+        // All three properties are required for signing; if any env var is absent the
+        // provider has no value and Gradle skips the signPlugin task automatically.
+        certificateChain = providers.environmentVariable("CERTIFICATE_CHAIN")
+        privateKey = providers.environmentVariable("PRIVATE_KEY")
+        password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
     }
+
     publishing {
         token = providers.environmentVariable("PUBLISH_TOKEN")
     }
 }
 
 kotlin {
-    // Compile with the installed JDK 21 toolchain, but emit Java 17 bytecode:
-    // IntelliJ Platform 2024.1 (since-build 241) runs plugins/tests on Java 17,
-    // so 21-targeted class files fail to load at test/runtime.
+    // Compile with JDK 21 toolchain, emit Java 17 bytecode (IntelliJ Platform 2024.1
+    // ships a Java 17 runtime; class files targeting 21 fail to load there).
     jvmToolchain(21)
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)

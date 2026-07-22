@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <!-- Left document -->
+  <rect x="3" y="5" width="15" height="30" rx="2" ry="2"
+        fill="#4A90D9" opacity="0.9"/>
+  <!-- Left document lines -->
+  <line x1="6" y1="11" x2="15" y2="11" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="6" y1="15" x2="15" y2="15" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="6" y1="19" x2="13" y2="19" stroke="#b0d8ff" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="6" y1="23" x2="15" y2="23" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="6" y1="27" x2="12" y2="27" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- Right document -->
+  <rect x="22" y="5" width="15" height="30" rx="2" ry="2"
+        fill="#4A90D9" opacity="0.9"/>
+  <!-- Right document lines -->
+  <line x1="25" y1="11" x2="34" y2="11" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="25" y1="15" x2="34" y2="15" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="25" y1="19" x2="34" y2="19" stroke="#ffcb6b" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="25" y1="23" x2="34" y2="23" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="25" y1="27" x2="31" y2="27" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- Diff arrows in the middle -->
+  <line x1="19" y1="19" x2="21" y2="19" stroke="#FF6B6B" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="20,17 22,19 20,21" fill="#FF6B6B"/>
+</svg>

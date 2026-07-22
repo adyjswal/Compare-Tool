@@ -14,17 +14,12 @@ class CompareAction : AnAction("Compare Two Files", "Sort and compare two large 
         val leftFile = FileChooser.chooseFile(descriptor.withTitle("Select Left File"), project, null) ?: return
         val rightFile = FileChooser.chooseFile(descriptor.withTitle("Select Right File"), project, null) ?: return
 
-        // Show the tool window
+        // Ensure the tool window is visible
         val tw = ToolWindowManager.getInstance(project).getToolWindow("LargeFileCompare")
         tw?.show()
 
-        // Get the panel and start the background task
+        // Delegate to DiffPanel, which owns the toolbar options and fires DiffBackgroundTask
         val diffPanel = project.getUserData(DiffToolWindowFactory.DIFF_PANEL_KEY) ?: return
-        diffPanel.displayComparing()
-
-        DiffBackgroundTask(project, leftFile.path, rightFile.path,
-            onResult = { result -> diffPanel.displaySummary(result.summary) },
-            onError  = { msg    -> diffPanel.displayError(msg) }
-        ).queue()
+        diffPanel.startComparison(leftFile.path, rightFile.path)
     }
 }

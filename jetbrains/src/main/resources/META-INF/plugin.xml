@@ -2,13 +2,61 @@
 <idea-plugin>
     <id>com.adityakumar.largefilecompare</id>
     <name>Large File Compare</name>
-    <vendor>AdityaKumar0406</vendor>
+    <version>0.1.0</version>
+
+    <vendor email="adityakumar0406@gmail.com"
+            url="https://github.com/AdityaKumar0406">AdityaKumar0406</vendor>
+
+    <category>Tools Integration</category>
+
     <description><![CDATA[
-        Sort and compare very large text files (200k–2M lines) such as SQL exports,
-        CSV dumps, and structured config/property files side by side.
-        Renders in seconds with smooth scrolling — compare as-is, by sort order,
-        or by key column (match rows by a unique ID field).
+        <h2>Large File Compare</h2>
+        <p>
+            Sort and diff very large text files (200k&ndash;2M lines) that your IDE's
+            built-in diff viewer chokes on &mdash; SQL exports, CSV dumps, structured
+            logs, and configuration files.
+        </p>
+
+        <h3>Features</h3>
+        <ul>
+            <li>Side-by-side diff view with per-row colour coding:
+                <b style="color:#2a7a2a">added</b> /
+                <b style="color:#8b0000">removed</b> /
+                <b style="color:#7a5a00">changed</b> / unchanged</li>
+            <li>Three diff modes:
+                <b>Positional</b> (line order, default),
+                <b>Set</b> (sorted order, no pairing),
+                <b>Key Column</b> (record reconciliation by a unique ID field)</li>
+            <li>Case-insensitive comparison toggle</li>
+            <li>Recompute instantly after changing options &mdash; files are not re-read</li>
+            <li>Patience diff algorithm: stays fast on 200k&ndash;1M line files where
+                a naive O(m&times;n) LCS would collapse</li>
+            <li>Works in every IntelliJ-platform IDE (IDEA, PyCharm, WebStorm, CLion, &hellip;)</li>
+        </ul>
+
+        <h3>Usage</h3>
+        <ol>
+            <li>Open <b>Tools &rarr; Large File Compare: Compare Two Files</b></li>
+            <li>Pick the <em>left</em> file, then the <em>right</em> file</li>
+            <li>The <em>Large File Compare</em> tool window opens with the side-by-side diff</li>
+            <li>Adjust mode / key-column options in the toolbar and click <b>Recompute</b>
+                to re-diff without re-reading the files</li>
+        </ol>
     ]]></description>
+
+    <change-notes><![CDATA[
+        <b>0.1.0</b> &mdash; Initial release
+        <ul>
+            <li>Side-by-side diff view rendered via a virtualized JBTable (renders only
+                visible rows; 1M-row results load in seconds)</li>
+            <li>Positional, Set, and Key-Column diff modes selectable from the toolbar</li>
+            <li>Case-insensitive comparison option</li>
+            <li>Recompute after option changes without re-reading files</li>
+            <li>Row colour-coding with IntelliJ light/dark theme support via JBColor</li>
+            <li>Patience diff with Sorensen&ndash;Dice similarity pairing for
+                &ldquo;changed&rdquo; row detection</li>
+        </ul>
+    ]]></change-notes>
 
     <!-- Platform dependency — works in all JetBrains IDEs based on the IntelliJ platform -->
     <depends>com.intellij.modules.platform</depends>

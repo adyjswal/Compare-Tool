@@ -1,24 +1,28 @@
 package com.adityakumar.plugin;
 
+import com.adityakumar.engine.DiffOptions;
+
 import org.eclipse.core.commands.AbstractHandler;
 import org.eclipse.core.commands.ExecutionEvent;
 import org.eclipse.core.commands.ExecutionException;
+import org.eclipse.jface.window.Window;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.widgets.FileDialog;
 import org.eclipse.swt.widgets.Shell;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PartInitException;
-import org.eclipse.ui.PlatformUI;
 import org.eclipse.ui.handlers.HandlerUtil;
 
 public class CompareHandler extends AbstractHandler {
+
     @Override
     public Object execute(ExecutionEvent event) throws ExecutionException {
         IWorkbenchWindow window = HandlerUtil.getActiveWorkbenchWindow(event);
         if (window == null) return null;
         Shell shell = window.getShell();
 
+        // ---- 1. Choose files ----------------------------------------- //
         FileDialog dlg = new FileDialog(shell, SWT.OPEN);
         dlg.setText("Select Left File");
         String leftPath = dlg.open();
@@ -29,18 +33,25 @@ public class CompareHandler extends AbstractHandler {
         String rightPath = dlg.open();
         if (rightPath == null) return null;
 
+        // ---- 2. Choose diff options ----------------------------------- //
+        CompareOptionsDialog optsDlg = new CompareOptionsDialog(shell);
+        if (optsDlg.open() != Window.OK) return null;
+        DiffOptions opts = optsDlg.getDiffOptions();
+
+        // ---- 3. Open the view ---------------------------------------- //
         IWorkbenchPage page = window.getActivePage();
-        DiffViewPart view = null;
+        DiffViewPart view;
         try {
             view = (DiffViewPart) page.showView(DiffViewPart.VIEW_ID);
         } catch (PartInitException e) {
             throw new ExecutionException("Cannot open Large File Compare view", e);
         }
 
+        // ---- 4. Run the diff in a background job --------------------- //
         final DiffViewPart finalView = view;
-        new DiffBackgroundJob(leftPath, rightPath,
-            result -> finalView.displaySummary(result.summary()),
-            error   -> finalView.displayError(error)
+        new DiffBackgroundJob(leftPath, rightPath, opts,
+            result -> finalView.displayResult(result),
+            error  -> finalView.displayError(error)
         ).schedule();
 
         return null;

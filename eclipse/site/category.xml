@@ -7,5 +7,10 @@
    </feature>
 
    <category-def name="com.adityakumar.largefilecompare.category"
-                 label="Large File Compare"/>
+                 label="Large File Compare">
+      <description>
+         Tools for sorting and comparing very large text files (SQL/CSV exports, logs,
+         config files) side by side. Handles 200k-2M lines without freezing Eclipse.
+      </description>
+   </category-def>
 </site>

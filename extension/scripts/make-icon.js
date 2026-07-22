@@ -1,5 +1,5 @@
 /*
- * Generates the extension icon (media/icon.png, 128×128 RGBA) with no external
+ * Generates the extension icon (media/icon.png, 256×256 RGBA) with no external
  * dependencies — a tiny hand-rolled PNG encoder (zlib is built into Node).
  *
  * The mark: a dark rounded panel split down the middle, with red bars on the
@@ -11,7 +11,8 @@ const zlib = require("node:zlib");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const SIZE = 128;
+const SIZE = 256;
+const SCALE = SIZE / 128; // scales all layout constants proportionally (128→256 = ×2)
 const buf = Buffer.alloc(SIZE * SIZE * 4); // RGBA
 
 function px(x, y, r, g, b, a) {
@@ -30,7 +31,7 @@ function rect(x0, y0, w, h, r, g, b, a) {
 }
 
 // Rounded-square background (transparent corners).
-const radius = 22;
+const radius = Math.round(22 * SCALE);
 function inRounded(x, y) {
   const min = 0;
   const max = SIZE - 1;
@@ -49,22 +50,24 @@ for (let y = 0; y < SIZE; y++) {
 }
 
 // Center divider.
-rect(SIZE / 2 - 1, 16, 2, SIZE - 32, 0x80, 0x80, 0x80, 0xff);
+const divW = 2 * SCALE;
+const divGap = Math.round(6 * SCALE);
+rect(SIZE / 2 - SCALE, Math.round(16 * SCALE), divW, SIZE - Math.round(32 * SCALE), 0x80, 0x80, 0x80, 0xff);
 
 // Diff bars: [yTop, height, leftColored, rightColored].
 const RED = [0xf8, 0x51, 0x49];
 const GREEN = [0x2e, 0xa0, 0x43];
 const rows = [
-  [30, 12, true, true], // changed
-  [52, 12, true, false], // removed
-  [74, 12, false, true], // added
-  [96, 12, true, true], // changed
+  [Math.round(30 * SCALE), Math.round(12 * SCALE), true, true],  // changed
+  [Math.round(52 * SCALE), Math.round(12 * SCALE), true, false],  // removed
+  [Math.round(74 * SCALE), Math.round(12 * SCALE), false, true],  // added
+  [Math.round(96 * SCALE), Math.round(12 * SCALE), true, true],   // changed
 ];
-const pad = 20;
+const pad = Math.round(20 * SCALE);
 const half = SIZE / 2;
 for (const [y, h, left, right] of rows) {
-  if (left) rect(pad, y, half - pad - 6, h, ...RED, 0xff);
-  if (right) rect(half + 6, y, half - pad - 6, h, ...GREEN, 0xff);
+  if (left) rect(pad, y, half - pad - divGap, h, ...RED, 0xff);
+  if (right) rect(half + divGap, y, half - pad - divGap, h, ...GREEN, 0xff);
 }
 
 // ---- PNG encode ----

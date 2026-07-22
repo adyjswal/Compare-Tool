@@ -9,10 +9,17 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 
+/**
+ * Background task that reads two files, diffs them, and reports results on the EDT.
+ *
+ * [options] wires the diff mode / key-column / case-insensitive settings chosen in
+ * the DiffPanel toolbar directly into the Differ call — nothing is hardcoded here.
+ */
 class DiffBackgroundTask(
     project: Project,
     private val leftPath: String,
     private val rightPath: String,
+    private val options: DiffOptions = DiffOptions(),
     private val onResult: (DiffResult) -> Unit,
     private val onError: (String) -> Unit
 ) : Task.Backgroundable(project, "Large File Compare: comparing…", true) {
@@ -43,7 +50,7 @@ class DiffBackgroundTask(
         indicator.checkCanceled()
         indicator.text = "Diffing…"
         indicator.fraction = 0.7
-        val result = Differ.diffLines(leftLines, rightLines, DiffOptions())
+        val result = Differ.diffLines(leftLines, rightLines, options)
 
         indicator.fraction = 1.0
         postToUi { onResult(result) }
