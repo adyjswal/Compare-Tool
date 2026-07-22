@@ -14,9 +14,7 @@ It also does two things the built-in diff can't do at any size:
 - **Key-column compare** — match rows by an ID column (record reconciliation), so an edited
   row shows as one *changed* row instead of a delete + add.
 
-<!-- Marketplace tip: add a screenshot of the diff panel for a big conversion boost, e.g.:
-![Large File Compare — side-by-side diff](media/screenshot.png)
-Save a 128-DPI screenshot to extension/media/screenshot.png and uncomment the line above. -->
+![Large File Compare — side-by-side diff of two CSV exports, with changed values highlighted inline and a live unchanged/changed/removed/added summary](https://raw.githubusercontent.com/adyjswal/Compare-Tool/main/extension/media/screenshot.png)
 
 ## What the panel looks like
 
