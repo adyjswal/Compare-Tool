@@ -36,6 +36,8 @@ Thumbs.db
 # JetBrains plugin build artifacts
 jetbrains/.gradle/
 jetbrains/build/
+jetbrains/.intellijPlatform/
+jetbrains/gradle-build.log
 
 # Eclipse plugin build artifacts
 eclipse/*/target/

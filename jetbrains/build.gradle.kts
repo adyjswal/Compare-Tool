@@ -41,7 +41,18 @@ intellijPlatform {
 }
 
 kotlin {
+    // Compile with the installed JDK 21 toolchain, but emit Java 17 bytecode:
+    // IntelliJ Platform 2024.1 (since-build 241) runs plugins/tests on Java 17,
+    // so 21-targeted class files fail to load at test/runtime.
     jvmToolchain(21)
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
 }
 
 tasks.test {
