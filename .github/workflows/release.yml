@@ -34,11 +34,32 @@ jobs:
       - name: Package .vsix
         run: cd extension && npm run vsix
 
+      # Publish steps are independent: continue-on-error means a benign failure on
+      # one registry (e.g. re-tagging an already-published version) never blocks the
+      # other publish or the GitHub Release. Build/test failures above still halt the
+      # pipeline before we reach here, so we never publish an untested build.
       - name: Publish to VS Code Marketplace
+        id: vsce
+        continue-on-error: true
         run: cd extension && npx @vscode/vsce publish --no-dependencies --pat ${{ secrets.VSCE_PAT }}
 
+      - name: Ensure Open VSX namespace exists
+        continue-on-error: true
+        run: npx ovsx create-namespace AdityaKumar0406 --pat ${{ secrets.OVSX_PAT }}
+
       - name: Publish to Open VSX Registry
+        id: ovsx
+        continue-on-error: true
         run: npx ovsx publish extension/large-file-compare-*.vsix --pat ${{ secrets.OVSX_PAT }}
+
+      # Surface each registry's outcome in the run summary, since continue-on-error
+      # keeps the job green — check here (or the listings) to confirm a publish landed.
+      - name: Publish summary
+        run: |
+          echo "| Registry | Outcome |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| VS Code Marketplace | ${{ steps.vsce.outcome }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Open VSX | ${{ steps.ovsx.outcome }} |" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@c062e08bd532815e2082a7e09ce9571a589a42f2
