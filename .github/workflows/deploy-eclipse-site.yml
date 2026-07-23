@@ -70,11 +70,10 @@ jobs:
           HTML
 
       - name: Configure Pages
-        # enablement: true turns on GitHub Pages (source = GitHub Actions) if it
-        # is not already enabled, so no manual repo-settings toggle is required.
+        # Requires GitHub Pages to be enabled once with source = "GitHub Actions"
+        # (repo Settings -> Pages). The default GITHUB_TOKEN cannot create the
+        # Pages site itself, so that first toggle is a manual step.
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Upload p2 site as Pages artifact
         uses: actions/upload-pages-artifact@v3
