@@ -22,6 +22,11 @@ dependencies {
 }
 
 intellijPlatform {
+    // This plugin contributes no Settings/preferences UI, so there is nothing to
+    // index for search. Skipping it avoids launching a headless IDE at build time,
+    // which is slow and flaky on CI runners (it crashed the release-jetbrains job).
+    buildSearchableOptions = false
+
     pluginConfiguration {
         name = "Large File Compare"
         version = "0.2.0"
