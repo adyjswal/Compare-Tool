@@ -1,0 +1,86 @@
+name: Deploy Eclipse p2 site
+
+# Builds the Eclipse Tycho p2 update site and publishes it to GitHub Pages, so
+# users can install the plugin via Help -> Install New Software from a permanent
+# URL: https://adyjswal.github.io/Compare-Tool/
+#
+# Triggers:
+#   - workflow_dispatch: deploy the current site on demand (no version tag needed)
+#   - push to main touching eclipse/**: keep the hosted site in sync with source
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'eclipse/**'
+      - '.github/workflows/deploy-eclipse-site.yml'
+
+# GitHub Pages deployment needs pages:write + id-token:write; contents:read is
+# enough for the checkout since we only read the repo.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two Pages deploys at once; let the latest supersede an in-flight one.
+concurrency:
+  group: eclipse-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup JDK 17 (temurin)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Build Eclipse p2 site (Tycho)
+        run: cd eclipse && mvn -B package
+
+      - name: Add landing page
+        # p2 sites have no index.html, so the bare Pages URL would 404 in a
+        # browser. Drop a small landing page next to the metadata that explains
+        # how to install; Eclipse ignores it and reads the p2 files directly.
+        run: |
+          cat > eclipse/site/target/repository/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>Large File Compare — Eclipse update site</title>
+          <style>body{font:16px/1.5 system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem}code{background:#f2f2f2;padding:.15em .4em;border-radius:4px}</style>
+          <h1>Large File Compare — Eclipse update site</h1>
+          <p>Install this plugin in Eclipse:</p>
+          <ol>
+            <li>Open <b>Help &rarr; Install New Software…</b></li>
+            <li>In <b>Work with</b>, paste this page's URL:
+              <br><code>https://adyjswal.github.io/Compare-Tool/</code></li>
+            <li>Select <b>Large File Compare</b>, click <b>Next</b>, and finish the wizard.</li>
+            <li>Restart Eclipse when prompted.</li>
+          </ol>
+          <p>Source: <a href="https://github.com/adyjswal/Compare-Tool">github.com/adyjswal/Compare-Tool</a></p>
+          HTML
+
+      - name: Configure Pages
+        # enablement: true turns on GitHub Pages (source = GitHub Actions) if it
+        # is not already enabled, so no manual repo-settings toggle is required.
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload p2 site as Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: eclipse/site/target/repository
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
