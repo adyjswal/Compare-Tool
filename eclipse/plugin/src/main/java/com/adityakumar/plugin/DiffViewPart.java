@@ -5,7 +5,9 @@ import com.adityakumar.engine.DiffResult;
 import com.adityakumar.engine.DiffRow;
 import com.adityakumar.engine.DiffStatus;
 import com.adityakumar.engine.DiffSummary;
+import com.adityakumar.engine.DisplayRowModel;
 import com.adityakumar.engine.SortOptions;
+import com.adityakumar.engine.WordDiff;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
@@ -19,17 +21,23 @@ import org.eclipse.jface.action.Separator;
 import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.viewers.ColumnLabelProvider;
 import org.eclipse.jface.viewers.ILazyContentProvider;
+import org.eclipse.jface.viewers.StyledCellLabelProvider;
 import org.eclipse.jface.viewers.TableViewer;
 import org.eclipse.jface.viewers.TableViewerColumn;
 import org.eclipse.jface.viewers.Viewer;
+import org.eclipse.jface.viewers.ViewerCell;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.custom.StyleRange;
 import org.eclipse.swt.events.KeyAdapter;
 import org.eclipse.swt.events.KeyEvent;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.graphics.Color;
+import org.eclipse.swt.graphics.GC;
+import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
+import org.eclipse.swt.widgets.Canvas;
 import org.eclipse.swt.widgets.Combo;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
@@ -37,6 +45,7 @@ import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.FileDialog;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Table;
+import org.eclipse.swt.widgets.TableItem;
 import org.eclipse.swt.widgets.Text;
 import org.eclipse.ui.part.ViewPart;
 
@@ -46,8 +55,10 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -60,10 +71,22 @@ import java.util.regex.PatternSyntaxException;
  * in-memory {@code List<RowEntry>} is accessed at O(1) via index.
  *
  * <p><b>Toolbar</b> — built once in {@link #createPartControl} via
- * {@link IToolBarManager}; contains a Sort combo (Original / Alpha ↑↓ /
- * Numeric ↑↓), three toggle buttons (Trim / Pair / Ci), a Find field with
- * navigation and options, and an Export button.  Toolbar changes trigger
- * {@link #recomputeFromToolbar()}, which spawns a fresh {@link DiffBackgroundJob}.
+ * {@link IToolBarManager}; contains a View-mode combo (All / Changes / Collapsed),
+ * a Sort combo (Original / Alpha ↑↓ / Numeric ↑↓), three toggle buttons
+ * (Trim / Pair / Ci), a Find field with navigation and options, and an Export
+ * button.  Toolbar changes trigger {@link #recomputeFromToolbar()} (which spawns
+ * a fresh {@link DiffBackgroundJob}) or {@link #rebuildDisplayModel()} (view-only).
+ *
+ * <p><b>Feature parity with the VS Code extension</b> — beyond the diff itself
+ * this viewer mirrors three webview features:
+ * <ul>
+ *   <li><b>Inline word-level diff</b> — {@link WordDiff} highlights the differing
+ *       span within a "changed" row on each side (see {@link TextCellLabelProvider}).</li>
+ *   <li><b>Overview ruler</b> — a narrow {@link Canvas} change-map beside the
+ *       table, drawn in display space, click-to-navigate (see {@link #paintRuler}).</li>
+ *   <li><b>Collapsed / changes view</b> — {@link DisplayRowModel} folds runs of
+ *       unchanged rows; the view-mode combo selects All / Changes-only / Collapsed.</li>
+ * </ul>
  *
  * <p><b>Request-generation guard</b> — a monotonic {@code requestGen} counter
  * (mirrors the VS Code extension's {@code requestId}) ensures that stale
@@ -76,6 +99,11 @@ public class DiffViewPart extends ViewPart {
 
     public static final String VIEW_ID = "com.adityakumar.largefilecompare.view";
 
+    /** Overview-ruler width in pixels (mirrors OverviewRuler.RULER_WIDTH). */
+    private static final int RULER_WIDTH = 14;
+    /** Fixed row-height fallback used for the viewport box maths. */
+    private static final int ROW_HEIGHT_FALLBACK = 20;
+
     // ------------------------------------------------------------------ //
     //  UI fields                                                           //
     // ------------------------------------------------------------------ //
@@ -83,15 +111,31 @@ public class DiffViewPart extends ViewPart {
     private Composite root;
     private Label     summaryLabel;
     private TableViewer tableViewer;
+    private Canvas    ruler;
 
-    /** Palette — allocated in createPartControl, disposed with the table. */
+    /** Row-status palette — allocated in createPartControl, disposed with the table. */
     private Color colorAdded;
     private Color colorRemoved;
     private Color colorChanged;
+    /** Fold-marker row background. */
+    private Color colorFold;
+    /** Inline word-diff span backgrounds (stronger tints of removed/added). */
+    private Color colorWordDel;
+    private Color colorWordAdd;
+    /** Overview-ruler palette. */
+    private Color rulerRed;
+    private Color rulerGreen;
+    private Color rulerBox;
+    private Color rulerBoxBorder;
+    private Color rulerMarker;
 
     // ------------------------------------------------------------------ //
     //  Toolbar widget references (null until ControlContribution creates)  //
     // ------------------------------------------------------------------ //
+
+    /** 0=All rows, 1=Changes only, 2=Collapsed */
+    private int   viewModeIndex = 0;
+    private Combo viewCombo;    // may be null during createPartControl
 
     /** 0=Original, 1=Alpha↑, 2=Alpha↓, 3=Num↑, 4=Num↓ */
     private int   sortComboIndex = 0;
@@ -118,6 +162,22 @@ public class DiffViewPart extends ViewPart {
     /** Null until the first successful comparison completes. */
     private volatile List<RowEntry> entries;
 
+    /**
+     * The display-row model mapping display index → absolute row / fold marker
+     * for the current view mode.  Null = identity (treat display index as
+     * absolute; used before the first comparison).
+     */
+    private volatile DisplayRowModel.Model displayModel;
+
+    /** Set of {@code runStart} values the user has expanded (collapsed mode). */
+    private final Set<Integer> expandedFolds = new HashSet<>();
+
+    /**
+     * Per-display-row status bytes for the overview ruler (0=unchanged,
+     * 1=added, 2=removed, 3=changed).  Length equals {@code displayModel.count}.
+     */
+    private volatile byte[] rulerStatuses = new byte[0];
+
     // ------------------------------------------------------------------ //
     //  Comparison state                                                    //
     // ------------------------------------------------------------------ //
@@ -142,6 +202,7 @@ public class DiffViewPart extends ViewPart {
     //  Find state                                                          //
     // ------------------------------------------------------------------ //
 
+    /** Matching ABSOLUTE row indices (into {@link #entries}). */
     private int[] findMatches = new int[0];
     private int   findCursor  = -1;
 
@@ -172,22 +233,45 @@ public class DiffViewPart extends ViewPart {
             "Large File Compare — use Large File Compare › Compare Two Files… to start.");
         summaryLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
 
-        // ---- status palette ----
+        // ---- palette ----
         Display display = parent.getDisplay();
         colorAdded   = new Color(display, 214, 255, 214); // pale green
         colorRemoved = new Color(display, 255, 210, 210); // pale red
         colorChanged = new Color(display, 255, 255, 200); // pale yellow
+        colorFold    = new Color(display, 232, 232, 238); // neutral fold marker
+        colorWordDel = new Color(display, 255, 160, 160); // stronger red (left changed span)
+        colorWordAdd = new Color(display, 150, 220, 150); // stronger green (right changed span)
+        rulerRed       = new Color(display, 248,  81,  73);
+        rulerGreen     = new Color(display,  46, 160,  67);
+        rulerBox       = new Color(display, 128, 128, 128);
+        rulerBoxBorder = new Color(display, 160, 160, 160);
+        rulerMarker    = new Color(display,  77, 170, 252);
+
+        // ---- table + overview ruler, side by side ----
+        Composite tableComp = new Composite(root, SWT.NONE);
+        tableComp.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+        GridLayout tcl = new GridLayout(2, false);
+        tcl.marginWidth = 0; tcl.marginHeight = 0; tcl.horizontalSpacing = 0;
+        tableComp.setLayout(tcl);
 
         // ---- virtual table ----
         //
         // SWT.VIRTUAL: only calls updateElement() for rows in the viewport.
         // At 1 M rows only ~80 TableItem objects exist at any one time.
-        Table table = new Table(root,
+        Table table = new Table(tableComp,
                 SWT.VIRTUAL | SWT.BORDER | SWT.FULL_SELECTION
                 | SWT.MULTI | SWT.V_SCROLL | SWT.H_SCROLL);
         table.setHeaderVisible(true);
         table.setLinesVisible(false);
         table.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+
+        // ---- overview ruler ----
+        ruler = new Canvas(tableComp, SWT.NO_BACKGROUND);
+        GridData rulerData = new GridData(SWT.CENTER, SWT.FILL, false, true);
+        rulerData.widthHint = RULER_WIDTH;
+        ruler.setLayoutData(rulerData);
+        ruler.addPaintListener(pe -> paintRuler(pe.gc));
+        ruler.addListener(SWT.MouseDown, e -> onRulerClick(e.y));
 
         tableViewer = new TableViewer(table);
 
@@ -200,8 +284,22 @@ public class DiffViewPart extends ViewPart {
             @Override
             public void updateElement(int index) {
                 List<RowEntry> snap = entries;
-                if (snap != null && index >= 0 && index < snap.size()) {
-                    tableViewer.replace(snap.get(index), index);
+                if (snap == null) return;
+                DisplayRowModel.Model m = displayModel;
+                if (m == null) {
+                    // Identity fallback (no model yet): display index == absolute row.
+                    if (index >= 0 && index < snap.size()) {
+                        tableViewer.replace(snap.get(index), index);
+                    }
+                    return;
+                }
+                if (index < 0 || index >= m.count) return;
+                int abs = m.absoluteOf(index);
+                if (abs >= 0) {
+                    if (abs < snap.size()) tableViewer.replace(snap.get(abs), index);
+                } else {
+                    DisplayRowModel.Fold fold = m.foldAt(index);
+                    if (fold != null) tableViewer.replace(fold, index);
                 }
             }
             @Override public void dispose() {}
@@ -211,10 +309,43 @@ public class DiffViewPart extends ViewPart {
         tableViewer.setInput(new Object());
         tableViewer.setItemCount(0);
 
+        // Click a fold marker to expand it.
+        table.addListener(SWT.MouseDown, e -> {
+            TableItem item = table.getItem(new Point(e.x, e.y));
+            if (item == null) return;
+            DisplayRowModel.Model m = displayModel;
+            if (m == null) return;
+            int disp = table.indexOf(item);
+            DisplayRowModel.Fold fold = m.foldAt(disp);
+            if (fold != null) {
+                expandedFolds.add(fold.runStart);
+                rebuildDisplayModel();
+            }
+        });
+
+        // Keep the ruler's viewport box + current-row marker in sync with the
+        // table.  A Paint listener catches every scroll cause (wheel, keys,
+        // scrollbar) and only redraws the ruler when the top row actually moved.
+        final int[] lastTop = { -1 };
+        table.addListener(SWT.Paint, e -> {
+            int top = table.getTopIndex();
+            if (top != lastTop[0]) { lastTop[0] = top; redrawRuler(); }
+        });
+        table.addListener(SWT.Selection, e -> redrawRuler());
+        table.addListener(SWT.Resize,    e -> redrawRuler());
+
         table.addDisposeListener(e -> {
             safeDispose(colorAdded);
             safeDispose(colorRemoved);
             safeDispose(colorChanged);
+            safeDispose(colorFold);
+            safeDispose(colorWordDel);
+            safeDispose(colorWordAdd);
+            safeDispose(rulerRed);
+            safeDispose(rulerGreen);
+            safeDispose(rulerBox);
+            safeDispose(rulerBoxBorder);
+            safeDispose(rulerMarker);
         });
     }
 
@@ -231,6 +362,36 @@ public class DiffViewPart extends ViewPart {
 
     private void createToolbar() {
         IToolBarManager tbm = getViewSite().getActionBars().getToolBarManager();
+
+        // ---- View-mode combo ---- //
+        tbm.add(new ControlContribution("lfc.view") {
+            @Override
+            protected Control createControl(Composite parent) {
+                viewCombo = new Combo(parent, SWT.DROP_DOWN | SWT.READ_ONLY);
+                viewCombo.add("All rows");
+                viewCombo.add("Changes only");
+                viewCombo.add("Collapsed");
+                viewCombo.select(viewModeIndex);
+                viewCombo.setToolTipText(
+                    "Which rows to show:\n"
+                    + "All rows — every row.\n"
+                    + "Changes only — hide unchanged rows.\n"
+                    + "Collapsed — fold long unchanged runs (click a fold to expand).");
+                viewCombo.addSelectionListener(new SelectionAdapter() {
+                    @Override
+                    public void widgetSelected(SelectionEvent e) {
+                        viewModeIndex = viewCombo.getSelectionIndex();
+                        rebuildDisplayModel();   // view-only: no re-diff needed
+                    }
+                });
+                return viewCombo;
+            }
+
+            @Override
+            protected int computeWidth(Control control) {
+                return 110;
+            }
+        });
 
         // ---- Sort combo ---- //
         tbm.add(new ControlContribution("lfc.sort") {
@@ -418,12 +579,15 @@ public class DiffViewPart extends ViewPart {
      */
     private void runComparison(DiffOptions opts, SortOptions sortOpts) {
         lastDiffOpts = opts;
-        updatePairChangedState();   // Fix 2: grey out Pair when sort/key/set mode active
+        updatePairChangedState();   // grey out Pair when sort/key/set mode active
         final int gen = ++requestGen;
 
         summaryLabel.setText("Comparing…");
         entries = null;
+        displayModel = null;
+        rulerStatuses = new byte[0];
         tableViewer.setItemCount(0);
+        redrawRuler();
 
         DiffBackgroundJob job = new DiffBackgroundJob(
             leftPath, rightPath, opts, sortOpts,
@@ -469,6 +633,8 @@ public class DiffViewPart extends ViewPart {
             if (row.right() != null) rNo++;
         }
         entries = newEntries;
+        // A fresh result invalidates any previously expanded folds.
+        expandedFolds.clear();
 
         DiffSummary s = result.summary();
         summaryLabel.setText(String.format(
@@ -476,8 +642,7 @@ public class DiffViewPart extends ViewPart {
             + "│  Removed: %,d  │  Changed: %,d",
             s.total(), s.unchanged(), s.added(), s.removed(), s.changed()));
 
-        tableViewer.setItemCount(0);           // clear stale TableItems
-        tableViewer.setItemCount(entries.size());
+        rebuildDisplayModel();
         root.layout(true, true);
 
         // If there is an active find query, re-run it against the new data.
@@ -491,9 +656,156 @@ public class DiffViewPart extends ViewPart {
     public void displayError(String message) {
         if (root == null || root.isDisposed()) return;
         entries = null;
+        displayModel = null;
+        rulerStatuses = new byte[0];
         tableViewer.setItemCount(0);
+        redrawRuler();
         summaryLabel.setText("Error: " + message);
         root.layout(true);
+    }
+
+    // ================================================================== //
+    //  Display-row model (view modes + folds)                             //
+    // ================================================================== //
+
+    /**
+     * Rebuild the {@link DisplayRowModel} for the current view mode and push
+     * the new row count to the virtual table and the overview ruler.  Cheap:
+     * no re-diff, just a re-map over the existing {@link #entries}.  Must be
+     * called on the UI thread.
+     */
+    private void rebuildDisplayModel() {
+        List<RowEntry> snap = entries;
+        if (snap == null) {
+            displayModel = null;
+            rulerStatuses = new byte[0];
+            if (tableViewer != null) tableViewer.setItemCount(0);
+            redrawRuler();
+            return;
+        }
+
+        byte[] statuses = new byte[snap.size()];
+        for (int i = 0; i < snap.size(); i++) {
+            statuses[i] = statusByte(snap.get(i).row().status());
+        }
+
+        DisplayRowModel.ViewMode mode = viewModeFromIndex(viewModeIndex);
+        DisplayRowModel.Model m = DisplayRowModel.build(
+            statuses, mode, DisplayRowModel.CONTEXT_ROWS, expandedFolds);
+        displayModel = m;
+
+        // Ruler draws in display space: use per-display statuses when the model
+        // supplies them (changes/collapsed), else the raw per-row statuses (all).
+        rulerStatuses = (m.displayStatuses != null) ? m.displayStatuses : statuses;
+
+        Table table = tableViewer.getTable();
+        tableViewer.setItemCount(m.count);
+        if (!table.isDisposed()) table.clearAll();
+        redrawRuler();
+    }
+
+    /** Map the view combo index (0/1/2) to a {@link DisplayRowModel.ViewMode}. */
+    private static DisplayRowModel.ViewMode viewModeFromIndex(int idx) {
+        return switch (idx) {
+            case 1  -> DisplayRowModel.ViewMode.CHANGES;
+            case 2  -> DisplayRowModel.ViewMode.COLLAPSED;
+            default -> DisplayRowModel.ViewMode.ALL;
+        };
+    }
+
+    /** Map a {@link DiffStatus} to the ruler/display status byte (0..3). */
+    private static byte statusByte(DiffStatus status) {
+        return switch (status) {
+            case UNCHANGED -> 0;
+            case ADDED     -> 1;
+            case REMOVED   -> 2;
+            case CHANGED   -> 3;
+        };
+    }
+
+    // ================================================================== //
+    //  Overview ruler                                                      //
+    // ================================================================== //
+
+    /** Schedule a ruler repaint if it still exists. */
+    private void redrawRuler() {
+        if (ruler != null && !ruler.isDisposed()) ruler.redraw();
+    }
+
+    /**
+     * Paint the overview ruler: red (removed/changed) bands on the left half,
+     * green (added/changed) on the right half, a translucent viewport box, and
+     * a blue current-row marker.  Operates entirely in DISPLAY space.
+     */
+    private void paintRuler(GC gc) {
+        if (ruler == null || ruler.isDisposed()) return;
+        int h = ruler.getBounds().height;
+        int w = RULER_WIDTH;
+
+        // Clear (SWT.NO_BACKGROUND means we own the pixels).
+        gc.setBackground(ruler.getDisplay().getSystemColor(SWT.COLOR_WIDGET_BACKGROUND));
+        gc.fillRectangle(0, 0, w, h);
+
+        byte[] st = rulerStatuses;
+        int count = st.length;
+        if (count <= 0 || h <= 0) return;
+
+        int half = w / 2;
+
+        // 1. Change bands (2 px tall), translucent to match the webview canvas.
+        gc.setAlpha(217);
+        for (int i = 0; i < count; i++) {
+            int s = st[i] & 0xFF;
+            if (s == 0) continue;
+            int y = (int) ((i + 0.5) / count * h);
+            if (y < 0) y = 0;
+            if (y >= h) y = h - 1;
+            if (s == 2 || s == 3) { gc.setBackground(rulerRed);   gc.fillRectangle(0,    y, half,     2); }
+            if (s == 1 || s == 3) { gc.setBackground(rulerGreen); gc.fillRectangle(half, y, w - half, 2); }
+        }
+        gc.setAlpha(255);
+
+        // 2. Viewport box.
+        Table table = tableViewer.getTable();
+        int itemH = table.getItemHeight() > 0 ? table.getItemHeight() : ROW_HEIGHT_FALLBACK;
+        int visible = Math.max(1, table.getClientArea().height / itemH);
+        int top = table.getTopIndex();
+        int y0 = (int) ((double) top / count * h);
+        int y1 = (int) ((double) (top + visible) / count * h);
+        int boxH = Math.max(2, y1 - y0);
+        if (y0 > h - boxH) y0 = Math.max(0, h - boxH);
+        gc.setAlpha(56);
+        gc.setBackground(rulerBox);
+        gc.fillRectangle(0, y0, w, boxH);
+        gc.setAlpha(140);
+        gc.setForeground(rulerBoxBorder);
+        gc.drawRectangle(0, y0, w - 1, boxH - 1);
+        gc.setAlpha(255);
+
+        // 3. Current-row marker (3 px, full width).
+        int sel = table.getSelectionIndex();
+        if (sel >= 0 && sel < count) {
+            int y = (int) ((sel + 0.5) / count * h);
+            gc.setBackground(rulerMarker);
+            gc.fillRectangle(0, Math.max(0, y - 1), w, 3);
+        }
+    }
+
+    /** Jump to the display row proportional to a click at pixel {@code clickY}. */
+    private void onRulerClick(int clickY) {
+        if (ruler == null || ruler.isDisposed()) return;
+        int h = ruler.getBounds().height;
+        int count = rulerStatuses.length;
+        if (h <= 0 || count <= 0) return;
+        int idx = (int) Math.floor((double) clickY / h * count);
+        if (idx < 0) idx = 0;
+        if (idx >= count) idx = count - 1;
+        Table t = tableViewer.getTable();
+        if (t.isDisposed()) return;
+        t.setTopIndex(idx);
+        t.select(idx);
+        t.showSelection();
+        redrawRuler();
     }
 
     // ================================================================== //
@@ -512,6 +824,9 @@ public class DiffViewPart extends ViewPart {
      * checks {@code gen != findGen} on every iteration and in the final
      * {@code asyncExec} callback so that a slow scan from a superseded query
      * silently discards its result rather than overwriting the newer one.
+     *
+     * <p>Matches are collected as ABSOLUTE row indices; {@link #revealFindMatch}
+     * translates them to display indices for the current view mode.
      */
     private void runFind() {
         if (findText == null || findText.isDisposed()) return;
@@ -613,13 +928,39 @@ public class DiffViewPart extends ViewPart {
         revealFindMatch();
     }
 
-    /** Scroll to and select the row at the current find cursor. */
+    /**
+     * Scroll to and select the row at the current find cursor.
+     *
+     * <p>{@link #findMatches} holds ABSOLUTE row indices; we translate through
+     * the {@link DisplayRowModel} to a display index for the active view mode.
+     * If the match is inside a collapsed fold, the fold is expanded first so
+     * the row becomes directly reachable.
+     */
     private void revealFindMatch() {
         if (findCursor < 0 || findCursor >= findMatches.length) return;
         if (tableViewer == null || tableViewer.getTable().isDisposed()) return;
-        int rowIdx = findMatches[findCursor];
-        tableViewer.getTable().setTopIndex(rowIdx);
-        tableViewer.getTable().select(rowIdx);
+        int abs = findMatches[findCursor];
+
+        DisplayRowModel.Model m = displayModel;
+        if (m != null && viewModeIndex == 2) {
+            // Collapsed mode: if the match is hidden inside a fold, expand it.
+            int disp = m.displayOf(abs);
+            if (disp >= 0 && disp < m.count && m.foldAt(disp) != null) {
+                DisplayRowModel.Fold fold = m.foldAt(disp);
+                if (fold != null && abs >= fold.start && abs < fold.end) {
+                    expandedFolds.add(fold.runStart);
+                    rebuildDisplayModel();
+                    m = displayModel;
+                }
+            }
+        }
+
+        int rowIdx = (m != null) ? m.displayOf(abs) : abs;
+        Table t = tableViewer.getTable();
+        t.setTopIndex(rowIdx);
+        t.select(rowIdx);
+        t.showSelection();
+        redrawRuler();
     }
 
     // ================================================================== //
@@ -828,7 +1169,11 @@ public class DiffViewPart extends ViewPart {
     // ================================================================== //
 
     /**
-     * Attach a {@link ColumnLabelProvider} to a new {@link TableViewerColumn}.
+     * Attach a label provider to a new {@link TableViewerColumn}.
+     *
+     * <p>Line-number columns (0, 2) use a plain {@link ColumnLabelProvider};
+     * text columns (1, 3) use a {@link TextCellLabelProvider} that owner-draws
+     * the inline word-diff span for "changed" rows.
      *
      * @param colIndex 0 = left#, 1 = left text, 2 = right#, 3 = right text
      */
@@ -839,22 +1184,24 @@ public class DiffViewPart extends ViewPart {
         tvc.getColumn().setResizable(true);
         tvc.getColumn().setMoveable(false);
 
-        tvc.setLabelProvider(new ColumnLabelProvider() {
+        if (colIndex == 1 || colIndex == 3) {
+            tvc.setLabelProvider(new TextCellLabelProvider(colIndex == 1));
+            return;
+        }
 
+        final boolean leftSide = (colIndex == 0);
+        tvc.setLabelProvider(new ColumnLabelProvider() {
             @Override
             public String getText(Object element) {
+                if (element instanceof DisplayRowModel.Fold) return "";
                 if (!(element instanceof RowEntry e)) return "";
-                return switch (colIndex) {
-                    case 0 -> e.leftNo()  > 0 ? Integer.toString(e.leftNo())  : "";
-                    case 1 -> e.row().left()  != null ? e.row().left()  : "";
-                    case 2 -> e.rightNo() > 0 ? Integer.toString(e.rightNo()) : "";
-                    case 3 -> e.row().right() != null ? e.row().right() : "";
-                    default -> "";
-                };
+                int no = leftSide ? e.leftNo() : e.rightNo();
+                return no > 0 ? Integer.toString(no) : "";
             }
 
             @Override
             public Color getBackground(Object element) {
+                if (element instanceof DisplayRowModel.Fold) return colorFold;
                 if (!(element instanceof RowEntry e)) return null;
                 return statusColor(e.row().status());
             }
@@ -869,6 +1216,70 @@ public class DiffViewPart extends ViewPart {
                 return null; // suppress default column-text tooltip
             }
         });
+    }
+
+    /**
+     * Owner-draw label provider for the two text columns.  Renders the row text,
+     * paints the status background, and — for "changed" rows — highlights the
+     * single differing span computed by {@link WordDiff} (red on the left side,
+     * green on the right).  Fold-marker rows render an "expand" hint.
+     */
+    private final class TextCellLabelProvider extends StyledCellLabelProvider {
+        private final boolean leftSide;
+
+        TextCellLabelProvider(boolean leftSide) {
+            this.leftSide = leftSide;
+        }
+
+        @Override
+        public void update(ViewerCell cell) {
+            Object el = cell.getElement();
+
+            if (el instanceof DisplayRowModel.Fold fold) {
+                cell.setText(leftSide
+                    ? "⋯ " + fold.count + " unchanged row"
+                        + (fold.count == 1 ? "" : "s") + " — click to expand"
+                    : "");
+                cell.setStyleRanges(null);
+                cell.setBackground(colorFold);
+                super.update(cell);
+                return;
+            }
+
+            if (!(el instanceof RowEntry e)) {
+                cell.setText("");
+                cell.setStyleRanges(null);
+                cell.setBackground(null);
+                super.update(cell);
+                return;
+            }
+
+            DiffRow row = e.row();
+            String text = leftSide
+                ? (row.left()  != null ? row.left()  : "")
+                : (row.right() != null ? row.right() : "");
+            cell.setText(text);
+            cell.setBackground(statusColor(row.status()));
+
+            StyleRange[] ranges = null;
+            if (row.status() == DiffStatus.CHANGED
+                    && row.left() != null && row.right() != null) {
+                WordDiff.InlineResult ir = WordDiff.compute(row.left(), row.right());
+                if (ir != null) {
+                    WordDiff.InlineSpan span = leftSide ? ir.left() : ir.right();
+                    int len = span.end() - span.start();
+                    if (len > 0 && span.start() >= 0 && span.end() <= text.length()) {
+                        StyleRange sr = new StyleRange();
+                        sr.start = span.start();
+                        sr.length = len;
+                        sr.background = leftSide ? colorWordDel : colorWordAdd;
+                        ranges = new StyleRange[]{ sr };
+                    }
+                }
+            }
+            cell.setStyleRanges(ranges);
+            super.update(cell);
+        }
     }
 
     /** Map a {@link DiffStatus} to its highlight colour (null = no highlight). */
