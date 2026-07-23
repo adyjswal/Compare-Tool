@@ -1,3 +1,5 @@
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+
 plugins {
     id("org.jetbrains.intellij.platform") version "2.3.0"
     kotlin("jvm") version "2.0.21"
@@ -48,6 +50,18 @@ intellijPlatform {
 
     publishing {
         token = providers.environmentVariable("PUBLISH_TOKEN")
+    }
+
+    // Plugin Verifier — same check JetBrains Marketplace runs during moderation.
+    // `recommended()` picks the IDE builds spanning our sinceBuild floor, so the
+    // deprecated-API report here matches the email from the Marketplace.
+    pluginVerification {
+        ides {
+            // Pin explicit, downloadable builds (recommended() resolved to an
+            // unreleased 2025.3). 2024.3 showed no deprecations, so the two the
+            // Marketplace flagged are in a newer build — verify against 2025.2.
+            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2025.2")
+        }
     }
 }
 
