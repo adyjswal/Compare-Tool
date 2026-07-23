@@ -64,7 +64,7 @@ jobs:
           echo "| Open VSX | ${{ steps.ovsx.outcome }} |" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@c062e08bd532815e2082a7e09ce9571a589a42f2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: extension/*.vsix
 
